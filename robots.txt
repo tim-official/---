@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://abdramanovtimur71-ux.github.io/---/sitemap.xml
+Sitemap: https://kismetmatrix.github.io/---/sitemap.xml
