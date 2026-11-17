@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="atlas-halo">
+      <stop stop-color="#b5a2ef" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#b5a2ef" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="atlas-gold" x2="1" y2="1">
+      <stop stop-color="#f2dec0"/>
+      <stop offset="1" stop-color="#a595d7"/>
+    </linearGradient>
+    <linearGradient id="atlas-spectrum" x2="0" y2="1">
+      <stop stop-color="#c5a5fa"/>
+      <stop offset=".18" stop-color="#8f9aff"/>
+      <stop offset=".34" stop-color="#8ccce9"/>
+      <stop offset=".5" stop-color="#95d5bb"/>
+      <stop offset=".66" stop-color="#e8d591"/>
+      <stop offset=".83" stop-color="#eab287"/>
+      <stop offset="1" stop-color="#e891a4"/>
+    </linearGradient>
+    <g id="atlas-stars" fill="#eee7ff">
+      <circle cx="47" cy="76" r="1.5"/><circle cx="322" cy="60" r="1"/>
+      <circle cx="346" cy="214" r="1.5"/><circle cx="58" cy="226" r="1"/>
+      <circle cx="114" cy="40" r=".8"/><circle cx="291" cy="258" r="1"/>
+      <path d="M302 113h10m-5-5v10M87 169h8m-4-4v8" stroke="#ded3f8" stroke-width="1"/>
+    </g>
+  </defs>
+  <symbol id="zodiac" viewBox="0 0 400 300">
+    <circle cx="200" cy="150" r="148" fill="url(#atlas-halo)"/>
+    <use href="#atlas-stars"/>
+    <g fill="none" stroke="url(#atlas-gold)">
+      <circle cx="200" cy="150" r="113" opacity=".65"/>
+      <circle cx="200" cy="150" r="106" opacity=".25"/>
+      <circle cx="200" cy="150" r="77" opacity=".4"/>
+      <circle cx="200" cy="150" r="68" stroke-dasharray="1 9" opacity=".55"/>
+      <path d="M200 37v36m0 154v36M87 150h36m154 0h36M143.5 52.1l18 31.2m77 133.4 18 31.2M102.1 93.5l31.2 18m133.4 77 31.2 18M102.1 206.5l31.2-18m133.4-77 31.2-18M143.5 247.9l18-31.2m77-133.4 18-31.2" opacity=".35"/>
+      <path d="m166 124 48-16 29 54-58 24-19-62 77 38-29-54-29 78" opacity=".7"/>
+    </g>
+    <g fill="#e1d5f9" font-family="Georgia, serif" font-size="17" text-anchor="middle" dominant-baseline="middle">
+      <text x="225" y="58">&#9800;&#xfe0e;</text><text x="268" y="82">&#9801;&#xfe0e;</text>
+      <text x="292" y="125">&#9802;&#xfe0e;</text><text x="292" y="175">&#9803;&#xfe0e;</text>
+      <text x="268" y="218">&#9804;&#xfe0e;</text><text x="225" y="242">&#9805;&#xfe0e;</text>
+      <text x="175" y="242">&#9806;&#xfe0e;</text><text x="132" y="218">&#9807;&#xfe0e;</text>
+      <text x="108" y="175">&#9808;&#xfe0e;</text><text x="108" y="125">&#9809;&#xfe0e;</text>
+      <text x="132" y="82">&#9810;&#xfe0e;</text><text x="175" y="58">&#9811;&#xfe0e;</text>
+    </g>
+    <g fill="#f3e5c4">
+      <circle cx="166" cy="124" r="3"/><circle cx="214" cy="108" r="3"/>
+      <circle cx="243" cy="162" r="4"/><circle cx="185" cy="186" r="3"/>
+    </g>
+  </symbol>
+  <symbol id="chakras" viewBox="0 0 400 300">
+    <circle cx="200" cy="150" r="145" fill="url(#atlas-halo)"/>
+    <use href="#atlas-stars"/>
+    <g fill="none" stroke="url(#atlas-spectrum)">
+      <ellipse cx="200" cy="150" rx="83" ry="127" opacity=".2"/>
+      <ellipse cx="200" cy="150" rx="60" ry="117" opacity=".25"/>
+      <path d="M200 32v236" opacity=".6"/>
+      <path d="M188 78c-17 19-16 28-33 42l-16 42 21 24m52-108c17 19 16 28 33 42l16 42-21 24M179 132l-5 41-35 42q61 29 122 0l-35-42-5-41M171 229q29-13 58 0" opacity=".5" stroke-width="1.4"/>
+      <circle cx="200" cy="63" r="21" opacity=".5"/>
+      <ellipse cx="200" cy="252" rx="99" ry="12" opacity=".2"/>
+    </g>
+    <g stroke-width="1.2">
+      <g fill="#c5a5fa" stroke="#c5a5fa"><circle cx="200" cy="42" r="17" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="42" r="5"/></g>
+      <g fill="#8f9aff" stroke="#8f9aff"><circle cx="200" cy="75" r="15" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="75" r="5"/></g>
+      <g fill="#8ccce9" stroke="#8ccce9"><circle cx="200" cy="108" r="15" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="108" r="5"/></g>
+      <g fill="#95d5bb" stroke="#95d5bb"><circle cx="200" cy="141" r="18" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="141" r="6"/></g>
+      <g fill="#e8d591" stroke="#e8d591"><circle cx="200" cy="174" r="15" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="174" r="5"/></g>
+      <g fill="#eab287" stroke="#eab287"><circle cx="200" cy="207" r="15" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="207" r="5"/></g>
+      <g fill="#e891a4" stroke="#e891a4"><circle cx="200" cy="240" r="17" fill-opacity=".08" stroke-opacity=".35"/><circle cx="200" cy="240" r="5"/></g>
+    </g>
+  </symbol>
+  <symbol id="matrix" viewBox="0 0 400 300">
+    <circle cx="200" cy="150" r="145" fill="url(#atlas-halo)"/>
+    <use href="#atlas-stars"/>
+    <g fill="none" stroke="url(#atlas-gold)">
+      <circle cx="200" cy="150" r="115" opacity=".3"/>
+      <path d="m200 45 105 105-105 105L95 150Zm-74 31h148v148H126Zm0 0 148 148m0-148L126 224m74-179v210M95 150h210" opacity=".7"/>
+      <circle cx="200" cy="150" r="50" opacity=".35"/>
+    </g>
+    <g fill="#1c1b2b" stroke="#cdbfe7">
+      <circle cx="200" cy="45" r="14"/><circle cx="305" cy="150" r="14"/>
+      <circle cx="200" cy="255" r="14"/><circle cx="95" cy="150" r="14"/>
+      <circle cx="126" cy="76" r="10"/><circle cx="274" cy="76" r="10"/>
+      <circle cx="126" cy="224" r="10"/><circle cx="274" cy="224" r="10"/>
+      <circle cx="200" cy="150" r="25" fill="#e4d1aa" stroke="#f3e3c2"/>
+    </g>
+    <g fill="#f4ecdf" font-family="system-ui, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">
+      <text x="200" y="45">10</text><text x="305" y="150">6</text>
+      <text x="200" y="255">6</text><text x="95" y="150">17</text>
+      <text x="200" y="151" fill="#252132" font-size="20">22</text>
+    </g>
+  </symbol>
+</svg>

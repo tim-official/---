@@ -2,12 +2,110 @@
    JAVASCRIPT - Интерактивность и Анимации
    ============================================ */
 
-// Плавная прокрутка
+const DASHBOARD_BUILD = '20261102-portrait';
+
+function getDashboardUrl(hash = '') {
+    const normalizedHash = hash ? '#' + String(hash).replace(/^#/, '') : '';
+    return `dashboard.html?v=${DASHBOARD_BUILD}${normalizedHash}`;
+}
+
+const SESSION_TOKEN_KEY = 'customerSessionToken';
+const AUTH_STORAGE_KEYS = ['isLoggedIn', 'userName', 'userEmail', 'rememberMe', SESSION_TOKEN_KEY];
+const SUPPORT_WHATSAPP_URL = 'https://wa.me/77072867777';
+
+function getSessionToken() {
+    const token = sessionStorage.getItem(SESSION_TOKEN_KEY) || localStorage.getItem(SESSION_TOKEN_KEY) || '';
+    return /^ms_[A-Za-z0-9_-]{20,}$/.test(token) ? token : '';
+}
+
+function clearSession() {
+    AUTH_STORAGE_KEYS.forEach((key) => {
+        sessionStorage.removeItem(key);
+        localStorage.removeItem(key);
+    });
+}
+
+function storeSession(token, account, remember) {
+    clearSession();
+    const store = remember ? localStorage : sessionStorage;
+    store.setItem(SESSION_TOKEN_KEY, token);
+    store.setItem('isLoggedIn', 'true');
+    store.setItem('userName', (account && account.name) || '');
+    store.setItem('userEmail', (account && account.email) || '');
+}
+
+function updateStoredAccount(account) {
+    if (!account) return;
+    const store = localStorage.getItem(SESSION_TOKEN_KEY) ? localStorage : sessionStorage;
+    store.setItem('userName', account.name || '');
+    store.setItem('userEmail', account.email || '');
+}
+
+function getAuthValue(key) {
+    return sessionStorage.getItem(key) || localStorage.getItem(key);
+}
+
+async function authRequest(path, { method = 'GET', body, token } = {}) {
+    const session = token === undefined ? getSessionToken() : token;
+    const headers = {};
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (session) headers.Authorization = 'Bearer ' + session;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);
+    try {
+        const response = await fetch(API_BASE + path, {
+            method,
+            headers,
+            body: body === undefined ? undefined : JSON.stringify(body),
+            signal: controller.signal
+        });
+        const data = await response.json();
+        if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.ok !== 'boolean') {
+            throw new Error('Некорректный ответ сервера. Попробуйте ещё раз позже.');
+        }
+        return { response, data };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function getClientAccessToken() {
+    const key = 'clientAccessToken';
+    let token = localStorage.getItem(key) || '';
+    if (!/^[a-f0-9]{64}$/i.test(token)) {
+        if (!window.crypto || !window.crypto.getRandomValues) {
+            throw new Error('Безопасное локальное хранилище недоступно. Откройте сайт через HTTPS.');
+        }
+        const bytes = new Uint8Array(32);
+        window.crypto.getRandomValues(bytes);
+        token = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem(key, token);
+    }
+    return token;
+}
+
+function isMotionEnabled() {
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        && document.body.getAttribute('data-motion') !== 'still';
+}
+
 function scrollToSection(selector) {
     const element = document.querySelector(selector);
     if (element) {
-        element.scrollIntoView({ behavior: 'smooth' });
+        element.scrollIntoView({ behavior: isMotionEnabled() ? 'smooth' : 'auto' });
     }
+}
+
+function isUserAuthenticated() {
+    return Boolean(getSessionToken());
+}
+
+function handleHeroMatrixCTA() {
+    if (isUserAuthenticated()) {
+        window.location.href = getDashboardUrl('matrix');
+        return;
+    }
+    openRegistrationModal();
 }
 
 function updateScrollProgress() {
@@ -51,14 +149,17 @@ const animateCountUp = () => {
 // Ленивая загрузка анимаций при видимости
 const observeElements = () => {
     const elements = document.querySelectorAll('.fade-in, .slide-in, .about-card, .service-item');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
                 entry.target.style.opacity = '1';
-                entry.target.style.animation = entry.target.classList.contains('fade-in')
-                    ? 'fadeIn 0.8s ease-out forwards'
-                    : 'slideUp 0.8s ease-out forwards';
+                entry.target.style.animation = reduceMotion
+                    ? 'none'
+                    : (entry.target.classList.contains('fade-in')
+                        ? 'fadeIn var(--anim-medium, 0.65s) ease-out forwards'
+                        : 'slideUp var(--anim-medium, 0.65s) ease-out forwards');
                 observer.unobserve(entry.target);
             }
         });
@@ -74,20 +175,6 @@ const lazyInitParticles = () => {
     particlesInitialized = true;
     initMysticParticles();
 };
-
-// Инициализировать частицы при видимости hero секции
-document.addEventListener('DOMContentLoaded', () => {
-    const heroSection = document.querySelector('.hero');
-    if (heroSection) {
-        const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) {
-                lazyInitParticles();
-                observer.unobserve(heroSection);
-            }
-        }, { threshold: 0.1 });
-        observer.observe(heroSection);
-    }
-});
 
 // Активная навигация при прокрутке
 const updateActiveNav = () => {
@@ -149,10 +236,8 @@ const handleFormSubmit = () => {
                 throw new Error(data.message || 'Ошибка');
             }
         } catch {
-            // Если API недоступно — показываем ссылку mailto как fallback
-            const mailtoLink = `mailto:roza19.91@icloud.com?subject=Сообщение с сайта&body=${encodeURIComponent(message ? message.value : '')}`;
-            window.location.href = mailtoLink;
-            submitBtn.textContent = '✓ Открываем почту...';
+            showError('Не удалось отправить сообщение. Попробуйте позже.');
+            submitBtn.textContent = 'Ошибка отправки';
         } finally {
             submitBtn.disabled = false;
             setTimeout(() => {
@@ -179,29 +264,39 @@ const mouseParallax = () => {
 };
 
 // Эффект появления навигации при прокрутке
+let navbarScrollListenerAttached = false;
 const navbarScroll = () => {
-    const navbar = document.querySelector('.navbar');
-    
-    window.addEventListener('scroll', () => {
+    const applyNavbarShadow = () => {
+        const navbar = document.querySelector('.navbar');
+        if (!navbar) return;
         if (window.scrollY > 50) {
             navbar.style.boxShadow = '0 5px 20px rgba(0, 0, 0, 0.15)';
         } else {
             navbar.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
         }
-    });
+    };
+
+    // Применяем сразу на случай, если страница уже прокручена
+    applyNavbarShadow();
+
+    // Слушатель добавляем только один раз, чтобы не копить дубликаты
+    if (!navbarScrollListenerAttached) {
+        window.addEventListener('scroll', applyNavbarShadow, { passive: true });
+        navbarScrollListenerAttached = true;
+    }
 };
 
 // Анимация при наведении на карточки услуг
 const serviceCardHover = () => {
-    const serviceItems = document.querySelectorAll('.service-item');
+    const serviceItems = document.querySelectorAll('.service-item, .mediumship-card');
     
     serviceItems.forEach(item => {
         item.addEventListener('mouseenter', function() {
-            this.style.transform = 'scale(1.05) rotateY(5deg)';
+            this.style.transform = 'translateY(-4px) scale(1.01)';
         });
         
         item.addEventListener('mouseleave', function() {
-            this.style.transform = 'scale(1) rotateY(0deg)';
+            this.style.transform = 'translateY(0) scale(1)';
         });
     });
 };
@@ -231,56 +326,121 @@ const lazyLoad = () => {
     images.forEach(img => imageObserver.observe(img));
 };
 
+/* ════════════════════════════════════════════════
+   ✦ COSMIC DESIGN — SHOOTING STARS & SCROLL REVEAL
+   ════════════════════════════════════════════════ */
+
+/** Падающие звёзды — создаём N элементов и добавляем на страницу */
+function initShootingStars() {
+    const count = 6;
+    for (let i = 0; i < count; i++) {
+        const star = document.createElement('div');
+        star.className = 'shooting-star';
+        star.style.left  = (15 + Math.random() * 75) + 'vw';
+        star.style.top   = (Math.random() * 50) + 'vh';
+        star.style.setProperty('--ss-dur',   (2.2 + Math.random() * 2.8) + 's');
+        star.style.setProperty('--ss-delay', (Math.random() * 14) + 's');
+        document.body.appendChild(star);
+    }
+}
+
+/** Scroll-reveal — добавляем класс .cosmic-reveal к карточкам и запускаем observer */
+function initCosmicReveal() {
+    if (!isMotionEnabled() || !('IntersectionObserver' in window)) return;
+    const elements = document.querySelectorAll(
+        '.section-heading, .experience-card, .portrait-card, .portrait-cta, .about-text, .about-feat-card, .faq-heading, .guest-review-form, .contact-heading, .section-footnote'
+    );
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('revealed');
+                setTimeout(() => { entry.target.style.transitionDelay = ''; }, 1200);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.08, rootMargin: '0px 0px -25px 0px' });
+    elements.forEach(el => {
+        el.classList.add('cosmic-reveal');
+        observer.observe(el);
+    });
+    document.querySelectorAll('.experience-card, .portrait-card').forEach((card) => {
+        const index = Array.prototype.indexOf.call(card.parentElement.children, card);
+        card.style.transitionDelay = `${index * 90}ms`;
+    });
+}
+
+/** Кнопки — отслеживаем мышь для позиции ripple */
+function initButtonRipple() {
+    document.querySelectorAll('.btn-primary, .submit-btn, .cta-button, .plan-btn').forEach(btn => {
+        btn.addEventListener('mousemove', (e) => {
+            const rect = btn.getBoundingClientRect();
+            btn.style.setProperty('--mx', ((e.clientX - rect.left) / rect.width * 100) + '%');
+            btn.style.setProperty('--my', ((e.clientY - rect.top)  / rect.height * 100) + '%');
+        });
+    });
+}
+
+/** Параллакс hero-слоёв для глубины */
+function initHeroLayerParallax() {
+    const hero = document.querySelector('.hero');
+    const pointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+    if (!hero) return;
+    let frame = 0;
+    let rx = 0;
+    let ry = 0;
+    const reset = () => {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        hero.style.setProperty('--stage-rx', '0deg');
+        hero.style.setProperty('--stage-ry', '0deg');
+    };
+    hero.addEventListener('pointermove', (e) => {
+        if (!isMotionEnabled() || !pointer.matches) return;
+        const rect = hero.getBoundingClientRect();
+        rx = -((e.clientY - rect.top) / rect.height - .5) * 7;
+        ry = ((e.clientX - rect.left) / rect.width - .5) * 9;
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+            hero.style.setProperty('--stage-rx', `${rx.toFixed(2)}deg`);
+            hero.style.setProperty('--stage-ry', `${ry.toFixed(2)}deg`);
+            frame = 0;
+        });
+    }, { passive: true });
+    hero.addEventListener('pointerleave', reset);
+    document.addEventListener('motionchange', reset);
+    pointer.addEventListener('change', reset);
+}
+
 // Инициализация всех функций при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
-    requestAnimationFrame(() => {
-        // Анимации и эффекты
-        waveAnimation();
-        addWaveStyle();
-        observeElements();
-        animateCountUp();
-        mouseParallax();
-        lazyLoad();
-        initMysticParticles();
-        initCardAura();
+    waveAnimation();
+    addWaveStyle();
+    observeElements();
+    animateCountUp();
+    mouseParallax();
+    lazyLoad();
+    initUnifiedAuraTracking();
+    initMotionModes();
+    initCosmicReveal();
+    initButtonRipple();
+    initHeroLayerParallax();
 
-        // Навигация и скролл
-        updateActiveNav();
-        navbarScroll();
-        updateScrollProgress();
-
-        // Интерактивность форм
-        handleFormSubmit();
-        formGlowEffect();
-        formProtection();
-        serviceCardHover();
-
-        // Авторизация и профиль
-        checkLoginStatus();
-        setupProfileMenuInteractions();
-
-        // Темы и UI
-        initializeTheme();
-
-        // Первая навигационная ссылка активна
-        const firstNavLink = document.querySelector('.nav-link');
-        if (firstNavLink) {
-            firstNavLink.classList.add('active');
-        }
-    });
+    updateActiveNav();
+    navbarScroll();
+    updateScrollProgress();
+    handleFormSubmit();
+    formGlowEffect();
+    formProtection();
+    serviceCardHover();
+    checkLoginStatus();
+    setupProfileMenuInteractions();
+    initAtmosphereModes();
+    initNavPrefsPanel();
+    initHeroNebulaCanvas();
 });
 
 window.addEventListener('scroll', updateScrollProgress, { passive: true });
 window.addEventListener('resize', updateScrollProgress);
-
-// Обработка клавиатуры для навигации
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') {
-        window.scrollBy({ top: 100, behavior: 'smooth' });
-    } else if (e.key === 'ArrowUp') {
-        window.scrollBy({ top: -100, behavior: 'smooth' });
-    }
-});
 
 // Случайная позиция фигур при загрузке
 window.addEventListener('load', () => {
@@ -332,7 +492,7 @@ const FormValidator = {
     name: (value) => value.trim().length >= 2,
     text: (value) => value.trim().length >= 3,
     password: (value) => value.length >= 6,
-    strongPassword: (value) => value.length >= 8 && /[a-z]/.test(value) && /[0-9]/.test(value)
+    strongPassword: (value) => value.length >= 8 && value.length <= 128 && /\p{L}/u.test(value) && /\d/.test(value)
 };
 
 function showLoadingIndicator(element) {
@@ -474,16 +634,55 @@ function initCardAura() {
     });
 }
 
+// Универсальный трекинг курсора для мягкой ауры карточек
+function initUnifiedAuraTracking() {
+    const cards = document.querySelectorAll(
+        '.experience-card, .portrait-card, .about-feat-card, .testimonial-card'
+    );
+    const pointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+    cards.forEach(card => {
+        card.addEventListener('pointermove', (e) => {
+            if (!pointer.matches || !isMotionEnabled()) return;
+            const rect = card.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(1) + '%';
+            const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(1) + '%';
+            card.style.setProperty('--mx', x);
+            card.style.setProperty('--my', y);
+        }, { passive: true });
+    });
+}
+
 // Пароль проверяется только на backend — не хранится в клиентском коде
 const API_BASE = (() => {
-    const params = new URLSearchParams(window.location.search);
-    const fromQuery = (params.get('api') || '').trim().replace(/\/$/, '');
-    if (/^https?:\/\//i.test(fromQuery)) {
-        localStorage.setItem('apiBaseUrl', fromQuery);
-        return fromQuery;
+    const PROD_API = 'https://roza-ogly-api.onrender.com';
+    let saved = '';
+    try { saved = (localStorage.getItem('apiBaseUrl') || '').trim().replace(/\/$/, ''); } catch { saved = ''; }
+    if (saved && saved !== PROD_API) { try { localStorage.removeItem('apiBaseUrl'); } catch {} }
+    const isLocalHost = ['127.0.0.1', 'localhost'].includes(window.location.hostname);
+    if (isLocalHost) {
+        return 'http://127.0.0.1:5000';
     }
-    return (localStorage.getItem('apiBaseUrl') || 'https://roza-ogly-api.onrender.com').trim().replace(/\/$/, '');
+    return PROD_API;
 })();
+window.API_BASE = API_BASE;
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function safeHttpUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim(), window.location.href);
+        return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : '';
+    } catch {
+        return '';
+    }
+}
 
 function getStorageArray(key) {
     try {
@@ -501,85 +700,6 @@ function addAdminRecord(key, payload) {
     const items = getStorageArray(key);
     items.unshift({ id: Date.now(), createdAt: new Date().toISOString(), ...payload });
     setStorageArray(key, items.slice(0, 200));
-}
-
-async function openAdminAccess() {
-    const modal = document.createElement('div');
-    modal.className = 'modal active';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <button class="close-modal" onclick="this.closest('.modal').remove()">×</button>
-            <div class="modal-header">
-                <h2>Вход администратора</h2>
-                <p>Введите пароль доступа</p>
-            </div>
-            <form class="admin-login-form">
-                <div class="form-group">
-                    <label>Пароль</label>
-                    <div class="password-field">
-                        <input type="password" id="adminPassword" placeholder="Пароль" required>
-                        <button type="button" class="show-password" onclick="this.parentElement.querySelector('input').type = this.parentElement.querySelector('input').type === 'password' ? 'text' : 'password'; this.textContent = this.parentElement.querySelector('input').type === 'password' ? '👁️' : '🙈'">👁️</button>
-                    </div>
-                </div>
-                <button type="submit" class="submit-btn" style="width:100%">Войти</button>
-            </form>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    document.body.style.overflow = 'hidden';
-
-    modal.querySelector('form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const code = document.getElementById('adminPassword').value.trim();
-
-        if (!code) {
-            showError('Введите пароль');
-            return;
-        }
-
-        const resetBtn = showLoadingIndicator(modal.querySelector('.submit-btn'));
-
-        try {
-            const response = await fetch(API_BASE + '/api/admin/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: code })
-            });
-            const data = await response.json();
-            if (!response.ok || !data.ok) {
-                showError(data.message || 'Ошибка входа');
-                resetBtn();
-                return;
-            }
-            localStorage.setItem('isAdminLoggedIn', 'true');
-            localStorage.setItem('adminToken', data.token);
-            localStorage.removeItem('adminOfflineAccess');
-            showSuccess('✓ Вы вошли в админ-панель');
-            setTimeout(() => {
-                window.location.href = 'admin.html';
-            }, 500);
-        } catch (error) {
-            localStorage.setItem('adminOfflineAccess', 'true');
-            showSuccess('⚠ Работа без интернета');
-            setTimeout(() => {
-                window.location.href = 'admin.html?setup=1';
-            }, 500);
-        }
-    });
-
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.remove();
-            document.body.style.overflow = 'auto';
-        }
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal.parentElement) {
-            modal.remove();
-            document.body.style.overflow = 'auto';
-        }
-    });
 }
 
 // Функции для работы с модальными окнами входа
@@ -608,6 +728,65 @@ function closeRegistrationModal() {
     modal.classList.remove('active');
     document.body.style.overflow = 'auto';
 }
+
+function openForgotPasswordModal() {
+    if (document.getElementById('forgotPasswordModal')) {
+        return;
+    }
+
+    const message = 'Здравствуйте! Не могу войти в личный кабинет. Подскажите, какие есть варианты восстановления доступа.';
+    const whatsappUrl = SUPPORT_WHATSAPP_URL + '?text=' + encodeURIComponent(message);
+
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.id = 'forgotPasswordModal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'forgotPasswordTitle');
+    modal.innerHTML = `
+        <div class="modal-content">
+            <button class="close-modal" type="button" aria-label="Закрыть">×</button>
+            <div class="modal-header">
+                <h2 id="forgotPasswordTitle">Восстановление доступа</h2>
+                <p>Автоматический сброс пароля пока не подключён. Напишите мастеру в WhatsApp, чтобы уточнить доступные варианты. Восстановление доступа может быть недоступно.</p>
+            </div>
+            <div class="login-form">
+                <a class="submit-btn" href="${escapeHtml(safeHttpUrl(whatsappUrl))}" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Написать в WhatsApp</a>
+                <p class="modal-note" style="margin-top:14px">Никому не сообщайте свой пароль — мастер его никогда не спрашивает.</p>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
+
+    const closeModal = () => {
+        modal.remove();
+        document.body.style.overflow = 'auto';
+    };
+
+    modal.querySelector('.close-modal')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+    document.addEventListener('keydown', function onKey(event) {
+        if (event.key === 'Escape') {
+            closeModal();
+            document.removeEventListener('keydown', onKey);
+        }
+    });
+}
+
+document.addEventListener('click', (event) => {
+    const forgotLink = event.target.closest('.forgot-password');
+    if (!forgotLink) {
+        return;
+    }
+    event.preventDefault();
+    openForgotPasswordModal();
+});
 
 // Закрытие модального окна при клике на фон
 document.addEventListener('DOMContentLoaded', () => {
@@ -657,142 +836,215 @@ function toggleRegistrationPassword(btn) {
     }
 }
 
+function authNetworkError(error) {
+    return error && error.name === 'AbortError'
+        ? 'Сервер долго не отвечает — возможно, он просыпается. Повторите через минуту.'
+        : 'Сервер авторизации недоступен. Проверьте интернет и попробуйте ещё раз.';
+}
+
 // Обработка формы входа
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('loginFormElement');
-    
-    if (loginForm) {
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            const rememberMe = document.getElementById('rememberMe').checked;
-            
-            // Валидация
-            if (!email || !password) {
-                showError('Пожалуйста, заполните все поля');
+    if (!loginForm) return;
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const remember = document.getElementById('rememberMe').checked;
+
+        if (!email || !password) {
+            showError('Пожалуйста, заполните все поля');
+            return;
+        }
+        if (!FormValidator.email(email)) {
+            showError('Введите корректный email');
+            return;
+        }
+
+        const resetBtn = showLoadingIndicator(loginForm.querySelector('.submit-btn'));
+        try {
+            const { response, data } = await authRequest('/api/auth/login', {
+                method: 'POST',
+                body: { email, password, remember },
+                token: ''
+            });
+            if (!response.ok || !data.ok || !data.token) {
+                showError(data.message || 'Не удалось войти. Попробуйте ещё раз.');
                 return;
             }
-            
-            if (password.length < 6) {
-                showError('Пароль должен содержать не менее 6 символов');
-                return;
-            }
-            
-            // Сохранение в localStorage (демонстрация)
-            localStorage.setItem('userEmail', email);
-            localStorage.setItem('isLoggedIn', 'true');
-            if (!localStorage.getItem('userName')) {
-                localStorage.setItem('userName', email.split('@')[0]);
-            }
-            
-            if (rememberMe) {
-                localStorage.setItem('rememberMe', 'true');
-            }
-            
-            // Имитация входа
-            simulateLogin(email);
-        });
-    }
+            storeSession(data.token, data.account, remember);
+            loginForm.reset();
+            completeLogin(data.account);
+        } catch (error) {
+            showError(authNetworkError(error));
+        } finally {
+            resetBtn();
+        }
+    });
 });
 
 // Обработка формы регистрации
 document.addEventListener('DOMContentLoaded', () => {
     const registrationForm = document.getElementById('registrationFormElement');
-    
-    if (registrationForm) {
-        registrationForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            
-            const name = document.getElementById('name').value;
-            const email = document.getElementById('reg-email').value;
-            const password = document.getElementById('reg-password').value;
-            const confirmPassword = document.getElementById('confirm-password').value;
-            const agree = document.getElementById('agree').checked;
-            
-            // Валидация
-            if (!name || !email || !password || !confirmPassword) {
-                showError('Пожалуйста, заполните все поля');
-                return;
-            }
-            
-            if (password.length < 8) {
-                showError('Пароль должен содержать не менее 8 символов');
-                return;
-            }
-            
-            if (password !== confirmPassword) {
-                showError('Пароли не совпадают');
-                return;
-            }
-            
-            if (!agree) {
-                showError('Пожалуйста, согласитесь с условиями использования');
-                return;
-            }
-            
-            // Сохранение в localStorage (демонстрация)
-            localStorage.setItem('userName', name);
-            localStorage.setItem('userEmail', email);
-            localStorage.setItem('isLoggedIn', 'true');
+    if (!registrationForm) return;
 
-            addAdminRecord('registrations', {
-                name,
-                email,
-                source: 'index-registration'
+    registrationForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('name').value.trim();
+        const email = document.getElementById('reg-email').value.trim();
+        const password = document.getElementById('reg-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        const agree = document.getElementById('agree').checked;
+
+        if (!name || !email || !password || !confirmPassword) {
+            showError('Пожалуйста, заполните все поля');
+            return;
+        }
+        if (!FormValidator.name(name)) {
+            showError('Имя должно содержать не менее 2 символов');
+            return;
+        }
+        if (!FormValidator.email(email)) {
+            showError('Введите корректный email');
+            return;
+        }
+        if (!FormValidator.strongPassword(password)) {
+            showError('Пароль: 8–128 символов, минимум одна буква и одна цифра');
+            return;
+        }
+        if (password !== confirmPassword) {
+            showError('Пароли не совпадают');
+            return;
+        }
+        if (!agree) {
+            showError('Пожалуйста, согласитесь с условиями использования');
+            return;
+        }
+
+        const resetBtn = showLoadingIndicator(registrationForm.querySelector('.submit-btn'));
+        try {
+            const { response, data } = await authRequest('/api/auth/register', {
+                method: 'POST',
+                body: { name, email, password, remember: true },
+                token: ''
             });
-            
-            // Имитация регистрации
-            simulateLogin(name);
-        });
-    }
+            if (!response.ok || !data.ok || !data.token) {
+                showError(data.message || 'Не удалось создать аккаунт. Попробуйте ещё раз.');
+                return;
+            }
+            storeSession(data.token, data.account, true);
+            registrationForm.reset();
+            completeLogin(data.account);
+        } catch (error) {
+            showError(authNetworkError(error));
+        } finally {
+            resetBtn();
+        }
+    });
 });
 
-// Функция для имитации входа
-function simulateLogin(userName) {
+function syncDrawerAccount(loggedIn, userName) {
+    const label = document.getElementById('drawerAccountLabel');
+    const hint = document.getElementById('drawerAccountHint');
+    const avatar = document.getElementById('drawerAccountAvatar');
+    const logoutLink = document.getElementById('drawerLogoutLink');
+    const name = String(userName || '').trim();
+    if (label) label.textContent = loggedIn ? 'Мой кабинет' : 'Войти в кабинет';
+    if (hint) hint.textContent = loggedIn ? (name ? `${name} · расчёты и разборы` : 'Расчёты, разборы и сеансы') : 'Сохраняйте расчёты и полные разборы';
+    if (avatar) avatar.textContent = loggedIn ? (name.charAt(0).toUpperCase() || '◈') : '◈';
+    if (logoutLink) logoutLink.hidden = !loggedIn;
+}
+
+function openCabinetFromDrawer(event) {
+    toggleMobileMenu();
+    if (isUserAuthenticated()) return;
+    event.preventDefault();
+    openLoginModal();
+}
+
+function applyLoggedInUi(userName) {
     const loginBtn = document.querySelector('.login-btn');
     const userProfile = document.getElementById('userProfile');
     const profileAvatar = document.querySelector('.profile-avatar');
-    
     if (loginBtn) loginBtn.style.display = 'none';
-    
-    userProfile.classList.remove('hidden');
-    
-    // Устанавливаем аватар с первой буквой имени
-    if (profileAvatar) {
-        profileAvatar.textContent = userName.charAt(0).toUpperCase();
+    if (userProfile) {
+        userProfile.classList.remove('hidden');
+        userProfile.classList.remove('open');
     }
-    
+    if (profileAvatar) {
+        profileAvatar.textContent = (userName || '•').trim().charAt(0).toUpperCase() || '•';
+    }
+    syncDrawerAccount(true, userName);
+}
+
+function applyLoggedOutUi() {
+    const loginBtn = document.querySelector('.login-btn');
+    const userProfile = document.getElementById('userProfile');
+    if (loginBtn) loginBtn.style.display = '';
+    if (userProfile) {
+        userProfile.classList.add('hidden');
+        userProfile.classList.remove('open');
+    }
+    syncDrawerAccount(false);
+}
+
+function completeLogin(account) {
+    const userName = (account && account.name) || 'гость';
+    applyLoggedInUi(userName);
     closeRegistrationModal();
     closeLoginModal();
-    
-    // Показываем сообщение об успехе
     showSuccess(`Добро пожаловать, ${userName}!`);
-    
     setTimeout(() => {
-        window.location.href = 'dashboard.html';
+        window.location.href = getDashboardUrl();
     }, 800);
 }
 
-// Функция проверки статуса входа при загрузке страницы
-function checkLoginStatus() {
-    const userLogged = localStorage.getItem('isLoggedIn');
-    const userName = localStorage.getItem('userName') || localStorage.getItem('userEmail');
-    
-    if (userLogged && userName) {
-        const loginBtn = document.querySelector('.login-btn');
-        const userProfile = document.getElementById('userProfile');
-        const profileAvatar = document.querySelector('.profile-avatar');
-        
-        if (loginBtn) loginBtn.style.display = 'none';
-        userProfile.classList.remove('hidden');
-        userProfile.classList.remove('open');
-        
-        if (profileAvatar) {
-            profileAvatar.textContent = userName.charAt(0).toUpperCase();
-        }
+function openAuthFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('auth');
+    if (!mode) return;
+    const reason = params.get('reason');
+    params.delete('auth');
+    params.delete('reason');
+    const query = params.toString();
+    history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
+    if (isUserAuthenticated()) return;
+    if (mode === 'register') {
+        openRegistrationModal();
+    } else {
+        openLoginModal();
     }
+    if (reason === 'expired') {
+        showError('Сессия истекла. Войдите снова.');
+    }
+}
+
+// Проверка входа при загрузке: сессию подтверждает сервер
+function checkLoginStatus() {
+    const token = getSessionToken();
+    if (!token) {
+        if (getAuthValue('isLoggedIn')) clearSession();
+        applyLoggedOutUi();
+        openAuthFromUrl();
+        return;
+    }
+
+    applyLoggedInUi(getAuthValue('userName') || '');
+    openAuthFromUrl();
+    authRequest('/api/auth/me', { token })
+        .then(({ response, data }) => {
+            if (response.status === 401) {
+                clearSession();
+                applyLoggedOutUi();
+                return;
+            }
+            if (response.ok && data.account) {
+                updateStoredAccount(data.account);
+                applyLoggedInUi(data.account.name);
+            }
+        })
+        .catch(() => {});
 }
 
 function toggleProfileMenu(event) {
@@ -825,18 +1077,13 @@ function setupProfileMenuInteractions() {
 
 // Функция выхода
 function logout() {
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('rememberMe');
-    
-    const loginBtn = document.querySelector('.login-btn');
-    const userProfile = document.getElementById('userProfile');
-    
-    if (loginBtn) loginBtn.style.display = 'block';
-    userProfile.classList.add('hidden');
-    
-    showSuccess('Вы успешно вышли из сессии');
+    const token = getSessionToken();
+    clearSession();
+    applyLoggedOutUi();
+    showSuccess('Вы вышли из аккаунта');
+    if (token) {
+        authRequest('/api/auth/logout', { method: 'POST', body: {}, token }).catch(() => {});
+    }
 }
 
 // Обработка формы записи на главной странице
@@ -927,7 +1174,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             slotRoot.innerHTML = '<div class="slot-hint-title">Свободное время:</div>'
                 + '<div class="slot-chip-row">'
-                + list.map((t) => '<button type="button" class="slot-chip" data-time="' + t + '">' + t + '</button>').join('')
+                + list.map((t) => '<button type="button" class="slot-chip" data-time="' + escapeHtml(t) + '">' + escapeHtml(t) + '</button>').join('')
                 + '</div>';
             slotRoot.querySelectorAll('.slot-chip').forEach((btn) => {
                 btn.addEventListener('click', () => {
@@ -970,6 +1217,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const resetBtn = showLoadingIndicator(bookingForm.querySelector('.submit-btn'));
+        let accessToken;
+        try {
+            accessToken = getClientAccessToken();
+        } catch (error) {
+            showError(error.message);
+            resetBtn();
+            return;
+        }
 
         const payload = {
             name: nameField ? nameField.value.trim() : '',
@@ -979,16 +1234,27 @@ document.addEventListener('DOMContentLoaded', () => {
             date: dateField ? dateField.value : '',
             time: timeField ? timeField.value : '',
             format: 'Запись через сайт',
-            note: noteField ? noteField.value.trim() : ''
+            note: noteField ? noteField.value.trim() : '',
+            accessToken
         };
 
         try {
+            const headers = { 'Content-Type': 'application/json' };
+            const sessionToken = getSessionToken();
+            if (sessionToken) headers.Authorization = 'Bearer ' + sessionToken;
             const response = await fetch(API_BASE + '/api/bookings', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(payload)
             });
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
+            if (response.status === 401 && data.sessionExpired) {
+                clearSession();
+                applyLoggedOutUi();
+                showError('Сессия истекла. Войдите снова или отправьте запись как гость.');
+                resetBtn();
+                return;
+            }
             if (!response.ok) {
                 if (data && data.conflict) {
                     showError((data.message || 'Это время занято') + (data.suggestedTime ? (' Рекомендуем: ' + data.suggestedTime) : ''));
@@ -1015,7 +1281,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             bookingForm.reset();
             if (slotRoot) slotRoot.innerHTML = '';
-            showSuccess('✓ Вы успешно записаны. Уведомления отправлены автоматически.');
+            showSuccess(sessionToken
+                ? '✓ Запись сохранена. Она появилась в личном кабинете — мастер свяжется с вами для подтверждения.'
+                : '✓ Запись сохранена. Мастер свяжется с вами для подтверждения.');
             resetBtn();
         } catch (error) {
             showError('Сервер записи недоступен. Проверьте соединение и повторите попытку.');
@@ -1042,14 +1310,15 @@ function renderGuestReviews() {
     list.innerHTML = reviews
         .slice(0, 12)
         .map((item) => {
-            const stars = '★★★★★'.slice(0, Number(item.rating || 5)) + '☆☆☆☆☆'.slice(0, 5 - Number(item.rating || 5));
+            const rating = Math.min(5, Math.max(0, Math.round(Number(item.rating || 5)) || 0));
+            const stars = '★★★★★'.slice(0, rating) + '☆☆☆☆☆'.slice(0, 5 - rating);
             return `
                 <article class="guest-item">
                     <div class="guest-item-head">
-                        <span class="guest-item-name">${item.name}</span>
+                        <span class="guest-item-name">${escapeHtml(item.name)}</span>
                         <span class="guest-item-stars">${stars}</span>
                     </div>
-                    <p class="guest-item-text">${item.text}</p>
+                    <p class="guest-item-text">${escapeHtml(item.text)}</p>
                 </article>
             `;
         })
@@ -1130,12 +1399,13 @@ async function renderPublicContent() {
         }
 
         root.innerHTML = items.map((item) => {
-            const kind = names[item.kind] || item.kind;
-            const link = item.media_url ? '<a href="' + item.media_url + '" target="_blank" rel="noopener noreferrer">Открыть →</a>' : '';
-            const body = item.body ? item.body : 'Без описания';
+            const kind = escapeHtml(names[item.kind] || item.kind);
+            const mediaUrl = safeHttpUrl(item.media_url);
+            const link = mediaUrl ? '<a href="' + escapeHtml(mediaUrl) + '" target="_blank" rel="noopener noreferrer">Открыть →</a>' : '';
+            const body = escapeHtml(item.body ? item.body : 'Без описания');
             return '<article class="public-item">'
                 + '<div class="kind">' + kind + '</div>'
-                + '<h3>' + (item.title || 'Без названия') + '</h3>'
+                + '<h3>' + escapeHtml(item.title || 'Без названия') + '</h3>'
                 + '<p>' + body + '</p>'
                 + link
                 + '</article>';
@@ -1288,82 +1558,194 @@ function getDailyAdvice() {
 document.addEventListener('DOMContentLoaded', checkLoginStatus);
 document.addEventListener('DOMContentLoaded', setupProfileMenuInteractions);
 
-/* ============================================
-   ПЕРЕКЛЮЧЕНИЕ ТЕМ
-   ============================================ */
+const MOTION_LEVELS = ['still', 'soft', 'normal', 'cinema'];
 
-// Переключение между светлой и темной темой
-const THEMES = ['ritual', 'oracle'];
-
-function applyTheme(theme) {
-    const html = document.documentElement;
-    const safeTheme = THEMES.includes(theme) ? theme : 'ritual';
-
-    html.setAttribute('data-theme', safeTheme);
-    localStorage.setItem('theme', safeTheme);
-    updateThemeIcon(safeTheme);
+function applyAtmosphere(atmo) {
+    const allowed = ['ritual', 'lunar', 'oracle'];
+    const safe = allowed.includes(atmo) ? atmo : 'ritual';
+    document.body.setAttribute('data-atmo', safe);
+    localStorage.setItem('atmo', safe);
+    document.querySelectorAll('.atmo-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.atmo === safe);
+    });
 }
 
-function toggleTheme() {
-    const html = document.documentElement;
-    const currentTheme = html.getAttribute('data-theme') || 'ritual';
-    const currentIndex = THEMES.indexOf(currentTheme);
-    const newTheme = THEMES[(currentIndex + 1) % THEMES.length];
-
-    applyTheme(newTheme);
+function initAtmosphereModes() {
+    const root = document.getElementById('atmoSwitcher');
+    if (!root) return;
+    root.querySelectorAll('.atmo-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            applyAtmosphere(btn.dataset.atmo || 'ritual');
+        });
+    });
+    applyAtmosphere(localStorage.getItem('atmo') || 'ritual');
 }
 
-// Обновление иконки переключателя
-function updateThemeIcon(theme) {
-    const toggle = document.getElementById('themeToggle');
-    if (toggle) {
-        const themeState = {
-            ritual: {
-                icon: '☾',
-                title: 'Переключить тему: Crystal Oracle'
-            },
-            oracle: {
-                icon: '🔮',
-                title: 'Переключить тему: Ritual Night'
-            }
-        };
+function initHeroNebulaCanvas() {
+    const canvas = document.getElementById('heroNebulaCanvas');
+    const hero = document.querySelector('.hero');
+    if (!canvas || !hero) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-        const current = themeState[theme] || themeState.ritual;
-        toggle.textContent = current.icon;
-        toggle.title = current.title;
-        toggle.setAttribute('aria-label', current.title);
-    }
-}
-
-// Инициализация темы при загрузке
-function initializeTheme() {
-    const savedTheme = localStorage.getItem('theme');
-
-    if (savedTheme && THEMES.includes(savedTheme)) {
-        applyTheme(savedTheme);
-        return;
-    }
-
-    applyTheme('ritual');
-}
-
-// Инициализация темы при загрузке страницы
-document.addEventListener('DOMContentLoaded', () => {
-    initializeTheme();
-});
-
-// Отслеживание изменений системной темы
-if (window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-        if (!localStorage.getItem('theme')) {
-            applyTheme(e.matches ? 'dark' : 'ritual');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const stars = Array.from({ length: 60 }, () => ({
+        x: Math.random(),
+        y: Math.random(),
+        radius: .35 + Math.random() * 1.1,
+        phase: Math.random() * Math.PI * 2
+    }));
+    let w = 0;
+    let h = 0;
+    let frame = 0;
+    let previous = 0;
+    let elapsed = 0;
+    let visible = true;
+    const paint = () => {
+        ctx.clearRect(0, 0, w, h);
+        stars.slice(0, w < 600 ? 30 : 60).forEach(star => {
+            const phase = elapsed * .00025 + star.phase;
+            const x = star.x * w + Math.sin(phase) * 12;
+            const y = star.y * h + Math.cos(phase * .7) * 10;
+            ctx.fillStyle = `rgba(222, 214, 194, ${.18 + (Math.sin(phase) + 1) * .16})`;
+            ctx.beginPath();
+            ctx.arc(x, y, star.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    };
+    const draw = timestamp => {
+        if (timestamp - previous >= 1000 / 30) {
+            const scale = { soft: .5, normal: 1, cinema: 1.6 }[document.body.dataset.motion] || 1;
+            elapsed += Math.min(timestamp - previous, 60) * scale;
+            previous = timestamp;
+            paint();
         }
+        frame = requestAnimationFrame(draw);
+    };
+    const reconcile = () => {
+        const active = visible && !document.hidden && !reducedMotion.matches && document.body.dataset.motion !== 'still';
+        canvas.dataset.animationState = active ? 'running' : 'paused';
+        document.body.classList.toggle('page-idle', document.hidden);
+        if (active && !frame) {
+            previous = performance.now();
+            frame = requestAnimationFrame(draw);
+        } else if (!active && frame) {
+            cancelAnimationFrame(frame);
+            frame = 0;
+        }
+    };
+    const resize = () => {
+        const rect = hero.getBoundingClientRect();
+        const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+        w = Math.max(1, Math.floor(rect.width));
+        h = Math.max(1, Math.floor(rect.height));
+        canvas.width = Math.round(w * ratio);
+        canvas.height = Math.round(h * ratio);
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        paint();
+    };
+    resize();
+    window.addEventListener('resize', resize, { passive: true });
+    document.addEventListener('visibilitychange', reconcile);
+    document.addEventListener('motionchange', reconcile);
+    reducedMotion.addEventListener('change', reconcile);
+    if ('IntersectionObserver' in window) {
+        new IntersectionObserver(entries => {
+            visible = entries[0].isIntersecting;
+            hero.classList.toggle('ambient-offscreen', !visible);
+            reconcile();
+        }).observe(hero);
+    }
+    reconcile();
+}
+
+function applyMotionLevel(level) {
+    const safe = MOTION_LEVELS.includes(level) ? level : 'normal';
+    document.body.setAttribute('data-motion', safe);
+    document.documentElement.setAttribute('data-motion', safe);
+    localStorage.setItem('motionLevel', safe);
+    document.querySelectorAll('.motion-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.motion === safe);
+        btn.setAttribute('aria-pressed', String(btn.dataset.motion === safe));
+    });
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.body.classList.toggle('motion-reduced', reduced);
+    const toggle = document.getElementById('ambientToggle');
+    if (toggle) {
+        toggle.disabled = reduced;
+        toggle.setAttribute('aria-pressed', String(reduced || safe === 'still'));
+        toggle.querySelector('.motion-control-icon').textContent = reduced || safe === 'still' ? '▷' : 'Ⅱ';
+        toggle.querySelector('.motion-control-label').textContent = reduced
+            ? 'Движение отключено системой'
+            : safe === 'still' ? 'Включить анимацию' : 'Пауза анимации';
+    }
+    document.dispatchEvent(new CustomEvent('motionchange', { detail: { level: safe } }));
+}
+
+function initMotionModes() {
+    const root = document.getElementById('motionSwitcher');
+    const preferred = localStorage.getItem('motionLevel') || 'normal';
+    let resumeLevel = preferred === 'still' ? 'normal' : preferred;
+    root?.querySelectorAll('.motion-btn').forEach((btn) => {
+        btn.addEventListener('click', () => applyMotionLevel(btn.dataset.motion || 'normal'));
+    });
+    document.getElementById('ambientToggle')?.addEventListener('click', () => {
+        const current = document.body.dataset.motion;
+        if (current === 'still') {
+            applyMotionLevel(resumeLevel);
+        } else {
+            resumeLevel = current;
+            applyMotionLevel('still');
+        }
+    });
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => {
+        applyMotionLevel(document.body.dataset.motion);
+    });
+    applyMotionLevel(preferred);
+}
+
+function initNavPrefsPanel() {
+    const navPrefs = document.querySelector('.nav-prefs');
+    const toggle = document.getElementById('navPrefsToggle');
+    const panel = document.getElementById('navPrefsPanel');
+    if (!navPrefs || !toggle || !panel) return;
+
+    const closePanel = () => {
+        navPrefs.classList.remove('open');
+        panel.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+    };
+
+    const openPanel = () => {
+        navPrefs.classList.add('open');
+        panel.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+    };
+
+    toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (panel.hidden) {
+            openPanel();
+        } else {
+            closePanel();
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!navPrefs.contains(event.target)) closePanel();
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closePanel();
     });
 }
 
 /* ============================================
    МОБИЛЬНОЕ МЕНЮ
    ============================================ */
+
+const mobileDrawerBackground = new Map();
+let mobileDrawerOverflow = '';
 
 function toggleMobileMenu() {
     const drawer  = document.getElementById('mobileDrawer');
@@ -1379,16 +1761,54 @@ function toggleMobileMenu() {
         btn.setAttribute('aria-label', isOpen ? 'Закрыть меню' : 'Открыть меню');
     }
     drawer.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
-    document.body.style.overflow = isOpen ? 'hidden' : '';
+    document.body.classList.toggle('drawer-open', isOpen);
+    if (isOpen) {
+        mobileDrawerOverflow = document.body.style.overflow;
+        for (const element of document.body.children) {
+            if (element === drawer || element === overlay) continue;
+            mobileDrawerBackground.set(element, element.inert);
+            element.inert = true;
+        }
+        document.body.style.overflow = 'hidden';
+        drawer.setAttribute('role', 'dialog');
+        drawer.setAttribute('aria-modal', 'true');
+        drawer.inert = false;
+        const closeBtn = drawer.querySelector('.drawer-close');
+        if (closeBtn) closeBtn.focus({ preventScroll: true });
+        return;
+    }
+    // Links navigate on their own; only the close controls hand focus back to the hamburger.
+    const focused = document.activeElement;
+    const returnFocus = btn && (focused === overlay || (drawer.contains(focused) && focused.tagName !== 'A'));
+    for (const [element, inert] of mobileDrawerBackground) element.inert = inert;
+    mobileDrawerBackground.clear();
+    document.body.style.overflow = mobileDrawerOverflow;
+    drawer.removeAttribute('aria-modal');
+    drawer.inert = true;
+    if (returnFocus) btn.focus({ preventScroll: true });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Escape закрывает drawer
     document.addEventListener('keydown', (e) => {
+        const drawer = document.getElementById('mobileDrawer');
+        if (!drawer || !drawer.classList.contains('active')) return;
         if (e.key === 'Escape') {
-            const drawer = document.getElementById('mobileDrawer');
-            if (drawer && drawer.classList.contains('active')) toggleMobileMenu();
+            e.preventDefault();
+            toggleMobileMenu();
+            document.getElementById('navHamburger')?.focus({ preventScroll: true });
+        } else if (e.key === 'Tab') {
+            const controls = [...drawer.querySelectorAll('a[href], button:not([disabled]), [tabindex]')]
+                .filter(element => element.tabIndex >= 0 && element.getClientRects().length);
+            const first = controls[0], last = controls[controls.length - 1];
+            if ((e.shiftKey && document.activeElement === first) || (!e.shiftKey && document.activeElement === last) || !drawer.contains(document.activeElement)) {
+                e.preventDefault();
+                (e.shiftKey ? last : first)?.focus();
+            }
         }
+    });
+    window.matchMedia('(min-width: 1061px)').addEventListener('change', event => {
+        const drawer = document.getElementById('mobileDrawer');
+        if (event.matches && drawer?.classList.contains('active')) toggleMobileMenu();
     });
 });
 
@@ -1397,7 +1817,7 @@ document.addEventListener('DOMContentLoaded', () => {
    ============================================ */
 
 function scrollToTop() {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: isMotionEnabled() ? 'smooth' : 'auto' });
 }
 
 window.addEventListener('scroll', () => {
@@ -1567,3 +1987,35 @@ window.addEventListener('scroll', () => {
     }
 }, { passive: true });
 
+/* ============================================
+   COSMIC INTERACTION LAYER — global polish
+   ============================================ */
+function initTestimonialNavigation() {
+    const track = document.getElementById('testimonialTrack');
+    const buttons = document.querySelectorAll('[data-review-direction]');
+    if (!track || !buttons.length) return;
+    const update = () => {
+        const end = Math.max(0, track.scrollWidth - track.clientWidth);
+        buttons.forEach(button => {
+            button.disabled = Number(button.dataset.reviewDirection) < 0
+                ? track.scrollLeft <= 1
+                : track.scrollLeft >= end - 1;
+        });
+    };
+    buttons.forEach(button => {
+        button.addEventListener('click', () => {
+            const card = track.firstElementChild;
+            if (!card) return;
+            const step = card.getBoundingClientRect().width + (parseFloat(getComputedStyle(track).columnGap) || 0);
+            track.scrollBy({
+                left: step * Number(button.dataset.reviewDirection),
+                behavior: isMotionEnabled() ? 'smooth' : 'auto'
+            });
+        });
+    });
+    track.addEventListener('scroll', update, { passive: true });
+    new ResizeObserver(update).observe(track);
+    update();
+}
+
+document.addEventListener('DOMContentLoaded', initTestimonialNavigation);

@@ -10,8 +10,14 @@ services:
     envVars:
       - key: APP_SECRET_KEY
         generateValue: true
+      - key: TASK_SECRET
+        generateValue: true
+      - key: REQUIRE_DATABASE_URL
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
       - key: PAYMENT_VERIFY_MODE
-        value: mock
+        value: strict
       - key: TRAINING_PRICE_KZT
         value: "75000"
       - key: OPENAI_MODEL

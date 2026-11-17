@@ -1,0 +1,124 @@
+/* Shared celestial gallery; artwork is decorative, never a personal result. */
+.celestial-gallery {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+    --atlas-text: var(--studio-text, #f2efe7);
+    --atlas-muted: var(--studio-muted, #b5b1c2);
+    --atlas-line: var(--studio-line, rgba(226, 218, 247, .13));
+    --atlas-surface: var(--studio-surface, #17171e);
+}
+.celestial-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    isolation: isolate;
+    border: 1px solid var(--atlas-line);
+    border-radius: 26px;
+    background: var(--atlas-surface);
+    color: var(--atlas-text);
+    text-align: left;
+    transition: border-color .3s, box-shadow .3s, transform .4s cubic-bezier(.22, 1, .36, 1);
+}
+.celestial-card-meta {
+    position: absolute;
+    z-index: 3;
+    inset: 18px 20px auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: #d6cfe3;
+    font: 500 10px/1.5 'Manrope', system-ui, sans-serif;
+    letter-spacing: .03em;
+    pointer-events: none;
+}
+.celestial-card-meta > span:last-child {
+    padding: 5px 9px;
+    border: 1px solid rgba(224, 214, 246, .17);
+    border-radius: 30px;
+    background: rgba(15, 15, 22, .45);
+}
+.celestial-art {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 100%;
+    height: 300px;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 70%, #30253f, transparent 70%), #14151e;
+}
+.celestial-art-zodiac { background: radial-gradient(ellipse at 50% 65%, #302d55, transparent 72%), #15151f; }
+.celestial-art-chakras { background: radial-gradient(ellipse at 45% 65%, #203e3b, transparent 72%), #121c21; }
+.celestial-art > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding-top: 20px;
+    animation: atlas-float 12s ease-in-out infinite;
+}
+.celestial-art-chakras > svg { animation-delay: -4s; }
+.celestial-card-copy {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 23px;
+    flex: 1;
+    border-top: 1px solid var(--atlas-line);
+}
+.celestial-card-copy > :first-child { flex: 1; min-width: 0; }
+.celestial-card-copy :is(h2, h3, strong) {
+    display: block;
+    margin: 0 0 7px;
+    color: var(--atlas-text);
+    font: 600 21px/1.25 'Manrope', system-ui, sans-serif;
+    letter-spacing: -.04em;
+}
+.celestial-card-copy p, .celestial-card-copy small {
+    display: block;
+    margin: 0;
+    color: var(--atlas-muted);
+    font: 400 12px/1.7 'Manrope', system-ui, sans-serif;
+}
+.celestial-card-link, .celestial-card-arrow {
+    display: grid;
+    place-items: center;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--atlas-line);
+    border-radius: 50%;
+    color: var(--atlas-text);
+    background: transparent;
+    font: 400 21px/1 system-ui, sans-serif;
+    text-decoration: none;
+    cursor: pointer;
+}
+button.celestial-card { width: 100%; padding: 0; cursor: pointer; font-family: inherit; }
+.celestial-card:focus-visible, .celestial-card-link:focus-visible {
+    outline: 2px solid var(--studio-accent, #c9b8ef);
+    outline-offset: 4px;
+}
+@keyframes atlas-float { 50% { transform: translateY(-7px); } }
+@media (hover: hover) and (pointer: fine) {
+    .celestial-card:hover { transform: translateY(-5px); border-color: #9c8bae; box-shadow: 0 22px 40px -30px #000; }
+    .celestial-card-link:hover { background: rgba(167, 146, 205, .15); }
+}
+@media (max-width: 1000px) {
+    .celestial-gallery { gap: 14px; }
+    .celestial-card-copy { padding: 18px; gap: 10px; }
+    .celestial-card-copy :is(h2, h3, strong) { font-size: 18px; }
+}
+@media (max-width: 700px) {
+    .celestial-gallery { grid-template-columns: 1fr; }
+    .celestial-art { height: 280px; }
+}
+html[data-motion="still"] .celestial-art > svg { animation: none; }
+html[data-motion="still"] .celestial-card { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+    .celestial-art > svg { animation: none; }
+    .celestial-card { transition: none; }
+}

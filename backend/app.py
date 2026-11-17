@@ -1,10 +1,10 @@
 import os
 import re
 import secrets
-import sqlite3
+import hashlib
+import hmac
 import logging
 from collections import Counter, defaultdict
-from contextlib import closing
 from io import StringIO
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -14,10 +14,12 @@ import threading
 import time
 
 import requests
+import db
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.exceptions import HTTPException
 
 try:
     from openai import OpenAI as _OpenAIClient
@@ -26,19 +28,23 @@ except ImportError:
 
 load_dotenv()
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "site.db")
 TIME_GAP_MINUTES = 60
 TRAINING_CAPACITY = 25
 TRAINING_PRICE_KZT = int(os.getenv("TRAINING_PRICE_KZT", "75000"))
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "0000")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 ADMIN_SESSION_MINUTES = int(os.getenv("ADMIN_SESSION_MINUTES", "720"))
-BOOKING_START_HOUR = int(os.getenv("BOOKING_START_HOUR", "9"))
-BOOKING_END_HOUR = int(os.getenv("BOOKING_END_HOUR", "21"))
-SLOT_STEP_MINUTES = int(os.getenv("SLOT_STEP_MINUTES", "60"))
+BOOKING_START_HOUR = max(0, min(22, int(os.getenv("BOOKING_START_HOUR", "9"))))
+BOOKING_END_HOUR = max(BOOKING_START_HOUR + 1, min(23, int(os.getenv("BOOKING_END_HOUR", "21"))))
+SLOT_STEP_MINUTES = max(15, min(240, int(os.getenv("SLOT_STEP_MINUTES", "60"))))
 REMINDER_JOB_ENABLED = os.getenv("REMINDER_JOB_ENABLED", "true").lower() == "true"
 REMINDER_JOB_INTERVAL_SECONDS = int(os.getenv("REMINDER_JOB_INTERVAL_SECONDS", "60"))
 TASK_SECRET = os.getenv("TASK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+SESSION_TOKEN_PREFIX = "ms_"
+CUSTOMER_SESSION_DAYS = max(1, int(os.getenv("CUSTOMER_SESSION_DAYS", "30")))
+CUSTOMER_SHORT_SESSION_HOURS = max(1, int(os.getenv("CUSTOMER_SHORT_SESSION_HOURS", "12")))
+PASSWORD_HASH_ITERATIONS = max(100_000, int(os.getenv("PASSWORD_HASH_ITERATIONS", "600000")))
+SUPPORT_WHATSAPP = os.getenv("SUPPORT_WHATSAPP", "+7 707 286 77 77")
 
 _openai_client = None
 _CHAT_SESSIONS: dict = {}  # session_id → {ts, messages}
@@ -48,7 +54,8 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("APP_SECRET_KEY", "dev-secret")
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "")
+app.config["SECRET_KEY"] = APP_SECRET_KEY or secrets.token_hex(32)
 
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -62,7 +69,7 @@ ALLOWED_ORIGINS = [
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["120 per hour"],
-    storage_uri="memory://",
+    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
 )
 limiter.init_app(app)
 
@@ -70,13 +77,7 @@ ADMIN_SESSIONS = {}
 _REMINDER_THREAD_STARTED = False
 
 
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-_ALLOWED_TABLES = {"bookings", "training_enrollments", "payments", "purchases", "messages"}
+_ALLOWED_TABLES = {"bookings", "training_enrollments", "payments", "purchases", "client_messages", "orders"}
 _ALLOWED_COLUMNS_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 def ensure_column(conn, table: str, column: str, ddl: str):
@@ -84,20 +85,22 @@ def ensure_column(conn, table: str, column: str, ddl: str):
         raise ValueError(f"Unknown table: {table}")
     if not _ALLOWED_COLUMNS_RE.match(column):
         raise ValueError(f"Invalid column name: {column}")
-    cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    if any(c["name"] == column for c in cols):
-        return
-    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    conn.add_column_if_missing(table, column, ddl)
+
+
+def create_table(conn, ddl: str):
+    conn.execute(db.render_ddl(ddl, db.dialect()))
 
 
 def init_db():
-    with closing(get_conn()) as conn:
-        conn.execute(
+    with db.connect() as conn:
+        create_table(conn,
             """
             CREATE TABLE IF NOT EXISTS bookings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 name TEXT NOT NULL,
                 email TEXT NOT NULL,
+                access_token_hash TEXT,
                 phone TEXT,
                 service TEXT NOT NULL,
                 format TEXT,
@@ -107,14 +110,16 @@ def init_db():
                 reminder_24h_sent INTEGER NOT NULL DEFAULT 0,
                 reminder_2h_sent INTEGER NOT NULL DEFAULT 0,
                 reminder_24h_sent_at TEXT,
-                reminder_2h_sent_at TEXT
+                reminder_2h_sent_at TEXT,
+                status TEXT NOT NULL DEFAULT 'confirmed',
+                cancelled_at TEXT
             )
             """
         )
-        conn.execute(
+        create_table(conn,
             """
             CREATE TABLE IF NOT EXISTS training_enrollments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 name TEXT NOT NULL,
                 email TEXT NOT NULL,
                 phone TEXT,
@@ -125,10 +130,10 @@ def init_db():
             )
             """
         )
-        conn.execute(
+        create_table(conn,
             """
             CREATE TABLE IF NOT EXISTS payments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 payment_id TEXT NOT NULL UNIQUE,
                 amount INTEGER NOT NULL,
                 currency TEXT NOT NULL,
@@ -140,10 +145,10 @@ def init_db():
             )
             """
         )
-        conn.execute(
+        create_table(conn,
             """
             CREATE TABLE IF NOT EXISTS purchases (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 kind TEXT NOT NULL,
                 title TEXT NOT NULL,
                 unit_price INTEGER NOT NULL DEFAULT 0,
@@ -159,10 +164,10 @@ def init_db():
             )
             """
         )
-        conn.execute(
+        create_table(conn,
             """
             CREATE TABLE IF NOT EXISTS content_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 kind TEXT NOT NULL,
                 title TEXT NOT NULL,
                 body TEXT,
@@ -171,10 +176,10 @@ def init_db():
             )
             """
         )
-        conn.execute(
+        create_table(conn,
             """
             CREATE TABLE IF NOT EXISTS client_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 from_email TEXT NOT NULL,
                 to_email TEXT NOT NULL,
                 subject TEXT,
@@ -184,15 +189,71 @@ def init_db():
             )
             """
         )
-        ensure_column(conn, "bookings", "reminder_24h_sent", "INTEGER NOT NULL DEFAULT 0")
-        ensure_column(conn, "bookings", "reminder_2h_sent", "INTEGER NOT NULL DEFAULT 0")
-        ensure_column(conn, "bookings", "reminder_24h_sent_at", "TEXT")
-        ensure_column(conn, "bookings", "reminder_2h_sent_at", "TEXT")
+        create_table(conn,
+            """
+            CREATE TABLE IF NOT EXISTS orders (
+                id {pk},
+                code TEXT NOT NULL UNIQUE,
+                access_token_hash TEXT,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'KZT',
+                customer_name TEXT NOT NULL,
+                customer_email TEXT NOT NULL,
+                customer_phone TEXT,
+                status TEXT NOT NULL,
+                enrollment_status TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        create_table(conn,
+            """
+            CREATE TABLE IF NOT EXISTS customer_accounts (
+                id {pk},
+                email TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                phone TEXT,
+                password_hash TEXT NOT NULL,
+                email_verified INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                password_changed_at TEXT
+            )
+            """
+        )
+        create_table(conn,
+            """
+            CREATE TABLE IF NOT EXISTS customer_sessions (
+                id {pk},
+                account_id BIGINT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                user_agent TEXT
+            )
+            """
+        )
         ensure_column(conn, "purchases", "unit_price", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "purchases", "quantity", "INTEGER NOT NULL DEFAULT 1")
-        conn.commit()
         ensure_column(conn, "bookings", "status", "TEXT NOT NULL DEFAULT 'confirmed'")
         ensure_column(conn, "bookings", "cancelled_at", "TEXT")
+        ensure_column(conn, "bookings", "access_token_hash", "TEXT")
+        ensure_column(conn, "bookings", "account_id", "BIGINT")
+        ensure_column(conn, "orders", "access_token_hash", "TEXT")
+        ensure_column(conn, "orders", "account_id", "BIGINT")
+        ensure_column(conn, "client_messages", "account_id", "BIGINT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bookings_owner ON bookings(email, access_token_hash, booking_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bookings_account ON bookings(account_id, booking_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bookings_active_slot ON bookings(status, booking_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_owner ON orders(customer_email, access_token_hash, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_account ON orders(account_id, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_account ON client_messages(account_id, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_account ON customer_sessions(account_id, revoked_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_training_capacity ON training_enrollments(status, email)")
         conn.commit()
 
 
@@ -220,33 +281,6 @@ def require_admin_or_401():
     if not is_admin_request():
         return jsonify({"ok": False, "message": "Требуется спецвход администратора"}), 401
     return None
-
-
-def luhn_valid(card_number: str) -> bool:
-    digits = [int(ch) for ch in card_number if ch.isdigit()]
-    if len(digits) < 13:
-        return False
-    checksum = 0
-    parity = len(digits) % 2
-    for i, digit in enumerate(digits):
-        if i % 2 == parity:
-            digit *= 2
-            if digit > 9:
-                digit -= 9
-        checksum += digit
-    return checksum % 10 == 0
-
-
-def exp_valid(mm_yy: str) -> bool:
-    if not re.match(r"^\d{2}/\d{2}$", mm_yy or ""):
-        return False
-    month = int(mm_yy[:2])
-    year = int(mm_yy[3:]) + 2000
-    if month < 1 or month > 12:
-        return False
-    now = datetime.now()
-    # Card valid through end of month.
-    return (year > now.year) or (year == now.year and month >= now.month)
 
 
 def parse_iso(dt_str: str):
@@ -285,9 +319,37 @@ def ensure_task_secret(req) -> bool:
     if is_admin_request():
         return True
     if not TASK_SECRET:
-        return True
+        return False
     token = (req.headers.get("X-Task-Token") or req.args.get("token") or "").strip()
-    return token == TASK_SECRET
+    return bool(token and hmac.compare_digest(token, TASK_SECRET))
+
+
+def access_token_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def valid_access_token(value: str) -> bool:
+    return bool(re.fullmatch(r"[a-fA-F0-9]{64}", value or ""))
+
+
+def request_access_token(payload=None) -> str:
+    """Browser capability key for legacy guest records (not an account session)."""
+    header_key = (request.headers.get("X-Client-Key") or "").strip()
+    if header_key:
+        return header_key
+    body_key = (payload or {}).get("accessToken") if isinstance(payload, dict) else None
+    if isinstance(body_key, str) and body_key.strip():
+        return body_key.strip()
+    authorization = request.headers.get("Authorization", "")
+    if authorization.startswith("Bearer "):
+        bearer = authorization[7:].strip()
+        if not bearer.startswith(SESSION_TOKEN_PREFIX):
+            return bearer
+    return ""
+
+
+def capability_hash_or_sentinel(token: str) -> str:
+    return access_token_hash(token) if valid_access_token(token) else "-"
 
 
 def validate_email(email: str) -> bool:
@@ -298,6 +360,159 @@ def validate_phone(phone: str) -> bool:
     if not phone:
         return True
     return bool(re.match(r"^\+?[0-9\-\s\(\)]{7,20}$", phone))
+
+
+class ApiError(Exception):
+    def __init__(self, message: str, status: int = 400, **extra):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+        self.extra = extra
+
+
+def json_body() -> dict:
+    if not request.get_data(cache=True):
+        return {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise ApiError("Некорректный формат запроса: ожидается JSON-объект", 400)
+    return payload
+
+
+def text_field(payload: dict, key: str, max_len: int = 2000, lower: bool = False) -> str:
+    value = payload.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ApiError("Некорректный формат поля", 400, field=key)
+    value = value.strip()
+    if len(value) > max_len:
+        raise ApiError("Слишком длинное значение", 400, field=key)
+    return value.lower() if lower else value
+
+
+def password_field(payload: dict, key: str) -> str:
+    value = payload.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str) or len(value) > 256:
+        raise ApiError("Некорректный формат пароля", 400, field=key)
+    return value
+
+
+def password_problem(password: str) -> str | None:
+    if len(password) < 8:
+        return "Пароль должен быть не короче 8 символов"
+    if len(password) > 128:
+        return "Пароль должен быть не длиннее 128 символов"
+    if not any(ch.isalpha() for ch in password) or not any(ch.isdigit() for ch in password):
+        return "Пароль должен содержать буквы и цифры"
+    return None
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_HASH_ITERATIONS)
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algorithm, iterations, salt_hex, digest_hex = (stored or "").split("$")
+        if algorithm != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), int(iterations))
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except (ValueError, TypeError):
+        return False
+
+
+_DUMMY_PASSWORD_HASH: list[str] = []
+
+
+def burn_password_check(password: str):
+    # Keeps login timing similar for unknown emails and wrong passwords.
+    if not _DUMMY_PASSWORD_HASH:
+        _DUMMY_PASSWORD_HASH.append(hash_password(secrets.token_hex(16)))
+    verify_password(password, _DUMMY_PASSWORD_HASH[0])
+
+
+def serialize_account(row) -> dict:
+    return {
+        "id": int(row["account_id"]),
+        "email": row["email"],
+        "name": row["name"],
+        "phone": row["phone"] or "",
+        "emailVerified": bool(row["email_verified"]),
+        "createdAt": row["created_at"],
+    }
+
+
+_ACCOUNT_SESSION_SQL = """
+    SELECT s.id AS session_id, s.expires_at, s.revoked_at,
+           a.id AS account_id, a.email, a.name, a.phone, a.email_verified, a.created_at
+    FROM customer_sessions s
+    JOIN customer_accounts a ON a.id = s.account_id
+    WHERE s.token_hash=?
+"""
+
+
+def issue_customer_session(conn, account_id: int, remember: bool) -> tuple[str, str]:
+    now = datetime.now()
+    lifetime = timedelta(days=CUSTOMER_SESSION_DAYS) if remember else timedelta(hours=CUSTOMER_SHORT_SESSION_HOURS)
+    expires_at = (now + lifetime).isoformat(timespec="seconds")
+    token = SESSION_TOKEN_PREFIX + secrets.token_urlsafe(32)
+    conn.execute(
+        "DELETE FROM customer_sessions WHERE account_id=? AND (expires_at < ? OR revoked_at IS NOT NULL)",
+        (account_id, now.isoformat(timespec="seconds")),
+    )
+    conn.execute(
+        """
+        INSERT INTO customer_sessions (account_id, token_hash, created_at, expires_at, user_agent)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (account_id, access_token_hash(token), now.isoformat(timespec="seconds"), expires_at,
+         (request.headers.get("User-Agent") or "")[:200]),
+    )
+    return token, expires_at
+
+
+def bearer_session_token() -> str:
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return ""
+    token = authorization[7:].strip()
+    return token if token.startswith(SESSION_TOKEN_PREFIX) else ""
+
+
+def optional_customer():
+    """Return the signed-in account, None for guests; reject stale or forged session tokens."""
+    token = bearer_session_token()
+    if not token:
+        return None
+    if len(token) > 200:
+        raise ApiError("Сессия недействительна. Войдите снова.", 401, sessionExpired=True)
+    with db.connect() as conn:
+        row = conn.execute(_ACCOUNT_SESSION_SQL, (access_token_hash(token),)).fetchone()
+    expires_at = parse_iso(row["expires_at"]) if row else None
+    if not row or row["revoked_at"] or not expires_at or expires_at <= datetime.now():
+        raise ApiError("Сессия истекла. Войдите снова.", 401, sessionExpired=True)
+    return dict(row)
+
+
+def require_customer():
+    customer = optional_customer()
+    if customer is None:
+        raise ApiError("Войдите в личный кабинет", 401, authRequired=True)
+    return customer
+
+
+def login_rate_key() -> str:
+    payload = request.get_json(silent=True)
+    email = payload.get("email") if isinstance(payload, dict) else None
+    if isinstance(email, str) and email.strip():
+        return "login:" + email.strip().lower()[:254]
+    return get_remote_address()
 
 
 def send_email_notification(subject: str, text: str):
@@ -383,12 +598,25 @@ def send_all_notifications(subject: str, text: str):
     return results
 
 
+def send_notifications_async(subject: str, text: str):
+    def notify():
+        try:
+            results = send_all_notifications(subject, text)
+            for channel, result in results.items():
+                if isinstance(result, tuple) and result and result[0] is False:
+                    log.warning("Notification channel %s failed: %s", channel, result[1])
+        except Exception:
+            log.exception("Background notification failed")
+
+    threading.Thread(target=notify, daemon=True, name="site-notification").start()
+
+
 @app.after_request
 def add_security_headers(resp):
     origin = request.headers.get("Origin")
     if origin and origin in ALLOWED_ORIGINS:
         resp.headers["Access-Control-Allow-Origin"] = origin
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Token"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Token, X-Client-Key"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         resp.headers["Vary"] = "Origin"
 
@@ -406,28 +634,73 @@ def handle_preflight():
         return ("", 204)
 
 
+@app.errorhandler(ApiError)
+def handle_api_error(exc: ApiError):
+    return jsonify({"ok": False, "message": exc.message, **exc.extra}), exc.status
+
+
+_HTTP_ERROR_MESSAGES = {
+    404: "Ресурс не найден",
+    405: "Метод не поддерживается",
+    413: "Слишком большой запрос",
+    429: "Слишком много запросов. Подождите немного и повторите.",
+}
+
+
+@app.errorhandler(HTTPException)
+def handle_http_error(exc: HTTPException):
+    message = _HTTP_ERROR_MESSAGES.get(exc.code or 500, exc.description or "Ошибка запроса")
+    return jsonify({"ok": False, "message": message}), exc.code or 500
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc: Exception):
+    log.exception("Unhandled API error on %s %s", request.method, request.path)
+    return jsonify({"ok": False, "message": "Внутренняя ошибка сервера. Попробуйте позже."}), 500
+
+
 @app.route("/api/bookings/<int:booking_id>/cancel", methods=["POST"])
 @limiter.limit("20 per hour")
 def cancel_booking(booking_id):
-    payload   = request.get_json(silent=True) or {}
-    email     = (payload.get("email") or "").strip().lower()
-    now       = datetime.now().isoformat()
+    payload = json_body()
+    customer = optional_customer()
+    email = text_field(payload, "email", 254, lower=True)
+    token = request_access_token(payload)
+    if customer is None and (not validate_email(email) or not valid_access_token(token)):
+        return jsonify({"ok": False, "message": "Не удалось подтвердить доступ к записи"}), 401
+    now = datetime.now().isoformat()
 
-    with closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT id, email, booking_at, service FROM bookings WHERE id = ?", (booking_id,)
-        ).fetchone()
+    with db.connect() as conn:
+        if customer:
+            row = conn.execute(
+                """
+                SELECT id, email, booking_at, service, status FROM bookings
+                WHERE id=? AND (account_id=? OR (account_id IS NULL AND email=? AND access_token_hash=?))
+                """,
+                (booking_id, customer["account_id"], customer["email"], capability_hash_or_sentinel(token)),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT id, email, booking_at, service, status FROM bookings
+                WHERE id=? AND email=? AND access_token_hash=?
+                """,
+                (booking_id, email, access_token_hash(token)),
+            ).fetchone()
         if not row:
             return jsonify({"ok": False, "message": "Запись не найдена"}), 404
-        if email and row["email"].lower() != email:
-            return jsonify({"ok": False, "message": "Нет доступа"}), 403
+        booking_at = parse_iso(row["booking_at"])
+        if row["status"] == "cancelled" or not booking_at or booking_at <= datetime.now():
+            return jsonify({"ok": False, "message": "Эту запись уже нельзя отменить"}), 409
         conn.execute(
-            "UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ?",
-            (now, booking_id)
+            """
+            UPDATE bookings SET status='cancelled', cancelled_at=?
+            WHERE id=? AND status <> 'cancelled'
+            """,
+            (now, booking_id),
         )
-        conn.commit()
 
-    send_all_notifications(
+    send_notifications_async(
         f"Отмена записи #{booking_id}",
         f"Клиент отменил запись:\n{row['service']} / {row['booking_at']}\nEmail: {row['email']}"
     )
@@ -455,9 +728,9 @@ def chat_ai():
     if _OpenAIClient and _openai_client is None:
         _openai_client = _OpenAIClient(api_key=OPENAI_API_KEY)
 
-    payload = request.get_json(silent=True) or {}
-    user_msg = (payload.get("message") or "").strip()
-    session_id = (payload.get("session_id") or "anon").strip()[:64]
+    payload = json_body()
+    user_msg = text_field(payload, "message", 4000)
+    session_id = text_field(payload, "session_id", 64) or "anon"
 
     if not user_msg:
         return jsonify({"ok": False, "message": "Введите сообщение"}), 400
@@ -493,32 +766,213 @@ def chat_ai():
 @app.route("/api/contact", methods=["POST"])
 @limiter.limit("10 per hour")
 def contact_form():
-    payload = request.get_json(silent=True) or {}
-    name    = (payload.get("name") or "").strip()
-    email   = (payload.get("email") or "").strip()
-    message = (payload.get("message") or "").strip()
+    payload = json_body()
+    name    = text_field(payload, "name", 120)
+    email   = text_field(payload, "email", 254, lower=True)
+    message = text_field(payload, "message", 4000)
 
     if not email or not message:
         return jsonify({"ok": False, "message": "Укажите email и сообщение"}), 400
+    if not validate_email(email):
+        return jsonify({"ok": False, "message": "Некорректный email"}), 400
 
     subject = f"Сообщение с сайта от {name or email}"
     text    = f"Имя: {name}\nEmail: {email}\n\nСообщение:\n{message}"
 
-    send_all_notifications(subject, text)
+    send_notifications_async(subject, text)
     return jsonify({"ok": True, "message": "Сообщение получено"})
 
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return jsonify({"ok": True})
+    if not db.ping():
+        log.error("Health check failed: database is unavailable")
+        return jsonify({"ok": False, "database": "unavailable"}), 503
+    return jsonify({"ok": True, "database": "ok"})
+
+
+@app.route("/api/auth/register", methods=["POST"])
+@limiter.limit("5 per minute;20 per hour")
+def auth_register():
+    payload = json_body()
+    name = text_field(payload, "name", 80)
+    email = text_field(payload, "email", 254, lower=True)
+    phone = text_field(payload, "phone", 32)
+    password = password_field(payload, "password")
+    remember = payload.get("remember", True) is True
+
+    if len(name) < 2:
+        raise ApiError("Укажите имя (минимум 2 символа)", 400, field="name")
+    if not validate_email(email):
+        raise ApiError("Некорректный email", 400, field="email")
+    if not validate_phone(phone):
+        raise ApiError("Некорректный номер телефона", 400, field="phone")
+    problem = password_problem(password)
+    if problem:
+        raise ApiError(problem, 400, field="password")
+
+    password_hash = hash_password(password)
+    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        with db.connect() as conn:
+            conn.lock(f"account:{email}")
+            if conn.execute("SELECT id FROM customer_accounts WHERE email=?", (email,)).fetchone():
+                raise ApiError("Аккаунт с таким email уже существует. Войдите в кабинет.", 409, field="email")
+            account_id = conn.insert(
+                """
+                INSERT INTO customer_accounts
+                (email, name, phone, password_hash, email_verified, created_at, updated_at, password_changed_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+                """,
+                (email, name, phone, password_hash, now, now, now),
+            )
+            token, expires_at = issue_customer_session(conn, account_id, remember)
+            account = conn.execute(_ACCOUNT_SESSION_SQL, (access_token_hash(token),)).fetchone()
+    except db.IntegrityError:
+        raise ApiError("Аккаунт с таким email уже существует. Войдите в кабинет.", 409, field="email")
+    return jsonify({"ok": True, "token": token, "expiresAt": expires_at, "account": serialize_account(account)}), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute;60 per hour")
+@limiter.limit("20 per hour", key_func=login_rate_key)
+def auth_login():
+    payload = json_body()
+    email = text_field(payload, "email", 254, lower=True)
+    password = password_field(payload, "password")
+    remember = payload.get("remember") is True
+    if not validate_email(email) or not password:
+        raise ApiError("Введите email и пароль", 400)
+
+    with db.connect() as conn:
+        row = conn.execute("SELECT id, password_hash FROM customer_accounts WHERE email=?", (email,)).fetchone()
+    if not row:
+        burn_password_check(password)
+        raise ApiError("Неверный email или пароль", 401)
+    if not verify_password(password, row["password_hash"]):
+        raise ApiError("Неверный email или пароль", 401)
+
+    with db.connect() as conn:
+        token, expires_at = issue_customer_session(conn, int(row["id"]), remember)
+        account = conn.execute(_ACCOUNT_SESSION_SQL, (access_token_hash(token),)).fetchone()
+    return jsonify({"ok": True, "token": token, "expiresAt": expires_at, "account": serialize_account(account)})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+@limiter.limit("120 per minute")
+def auth_me():
+    customer = require_customer()
+    return jsonify({"ok": True, "account": serialize_account(customer), "expiresAt": customer["expires_at"]})
+
+
+@app.route("/api/auth/profile", methods=["POST"])
+@limiter.limit("20 per minute")
+def auth_update_profile():
+    customer = require_customer()
+    payload = json_body()
+    name = text_field(payload, "name", 80)
+    phone = text_field(payload, "phone", 32)
+    if len(name) < 2:
+        raise ApiError("Укажите имя (минимум 2 символа)", 400, field="name")
+    if not validate_phone(phone):
+        raise ApiError("Некорректный номер телефона", 400, field="phone")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE customer_accounts SET name=?, phone=?, updated_at=? WHERE id=?",
+            (name, phone, datetime.now().isoformat(timespec="seconds"), customer["account_id"]),
+        )
+    return jsonify({"ok": True, "account": serialize_account({**customer, "name": name, "phone": phone})})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+@limiter.limit("30 per minute")
+def auth_logout():
+    token = bearer_session_token()
+    if token:
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE customer_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
+                (datetime.now().isoformat(timespec="seconds"), access_token_hash(token)),
+            )
+    return jsonify({"ok": True, "message": "Вы вышли из аккаунта"})
+
+
+@app.route("/api/auth/logout-all", methods=["POST"])
+@limiter.limit("10 per minute")
+def auth_logout_all():
+    customer = require_customer()
+    with db.connect() as conn:
+        result = conn.execute(
+            "UPDATE customer_sessions SET revoked_at=? WHERE account_id=? AND revoked_at IS NULL",
+            (datetime.now().isoformat(timespec="seconds"), customer["account_id"]),
+        )
+        revoked = max(0, result.rowcount or 0)
+    return jsonify({"ok": True, "revokedSessions": revoked, "message": "Все сессии аккаунта завершены"})
+
+
+@app.route("/api/auth/password", methods=["POST"])
+@limiter.limit("5 per minute;20 per hour")
+def auth_change_password():
+    customer = require_customer()
+    payload = json_body()
+    current_password = password_field(payload, "currentPassword")
+    new_password = password_field(payload, "newPassword")
+    if not current_password:
+        raise ApiError("Введите текущий пароль", 400, field="currentPassword")
+    problem = password_problem(new_password)
+    if problem:
+        raise ApiError(problem, 400, field="newPassword")
+    if new_password == current_password:
+        raise ApiError("Новый пароль должен отличаться от текущего", 400, field="newPassword")
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM customer_accounts WHERE id=?", (customer["account_id"],)
+        ).fetchone()
+    if not row or not verify_password(current_password, row["password_hash"]):
+        raise ApiError("Текущий пароль указан неверно", 400, field="currentPassword")
+
+    new_hash = hash_password(new_password)
+    now = datetime.now().isoformat(timespec="seconds")
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE customer_accounts SET password_hash=?, password_changed_at=?, updated_at=? WHERE id=?",
+            (new_hash, now, now, customer["account_id"]),
+        )
+        result = conn.execute(
+            "UPDATE customer_sessions SET revoked_at=? WHERE account_id=? AND id<>? AND revoked_at IS NULL",
+            (now, customer["account_id"], customer["session_id"]),
+        )
+        revoked = max(0, result.rowcount or 0)
+    return jsonify({
+        "ok": True,
+        "revokedSessions": revoked,
+        "message": "Пароль изменён. Другие устройства вышли из аккаунта.",
+    })
+
+
+@app.route("/api/auth/password/forgot", methods=["POST"])
+@app.route("/api/auth/password/reset", methods=["POST"])
+@limiter.limit("10 per hour")
+def auth_password_recovery_unavailable():
+    return jsonify({
+        "ok": False,
+        "recoveryAvailable": False,
+        "message": (
+            "Автоматическое восстановление пароля пока не подключено. "
+            f"Напишите в WhatsApp {SUPPORT_WHATSAPP} — администратор поможет восстановить доступ."
+        ),
+    }), 503
 
 
 @app.route("/api/admin/login", methods=["POST"])
 @limiter.limit("20 per minute")
 def admin_login():
-    payload = request.get_json(silent=True) or {}
-    password = (payload.get("password") or "").strip()
-    if password != ADMIN_PASSWORD:
+    payload = json_body()
+    password = text_field(payload, "password", 256)
+    if not ADMIN_PASSWORD:
+        return jsonify({"ok": False, "message": "Спецвход отключен: пароль администратора не настроен"}), 503
+    if not hmac.compare_digest(password, ADMIN_PASSWORD):
         return jsonify({"ok": False, "message": "Неверный пароль спецвхода"}), 401
     token = issue_admin_token()
     return jsonify({"ok": True, "token": token, "expiresInMinutes": ADMIN_SESSION_MINUTES})
@@ -531,24 +985,24 @@ def admin_content():
         return auth_error
 
     if request.method == "GET":
-        with closing(get_conn()) as conn:
+        with db.connect() as conn:
             rows = conn.execute(
                 "SELECT id, kind, title, body, media_url, created_at FROM content_items ORDER BY id DESC"
             ).fetchall()
         return jsonify({"ok": True, "items": [dict(r) for r in rows]})
 
-    payload = request.get_json(silent=True) or {}
-    kind = (payload.get("kind") or "").strip().lower()
-    title = (payload.get("title") or "").strip()
-    body = (payload.get("body") or "").strip()
-    media_url = (payload.get("mediaUrl") or "").strip()
+    payload = json_body()
+    kind = text_field(payload, "kind", 20, lower=True)
+    title = text_field(payload, "title", 200)
+    body = text_field(payload, "body", 20000)
+    media_url = text_field(payload, "mediaUrl", 2000)
 
     if kind not in {"story", "doc", "photo", "video"}:
         return jsonify({"ok": False, "message": "Тип должен быть: story/doc/photo/video"}), 400
     if not title:
         return jsonify({"ok": False, "message": "Укажите заголовок"}), 400
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         conn.execute(
             """
             INSERT INTO content_items (kind, title, body, media_url, created_at)
@@ -563,7 +1017,7 @@ def admin_content():
 
 @app.route("/api/content", methods=["GET"])
 def public_content():
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         rows = conn.execute(
             "SELECT id, kind, title, body, media_url, created_at FROM content_items ORDER BY id DESC LIMIT 50"
         ).fetchall()
@@ -576,7 +1030,7 @@ def admin_participants():
     if auth_error:
         return auth_error
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         bookings = conn.execute(
             """
             SELECT name, email, phone, booking_at, created_at
@@ -609,7 +1063,7 @@ def admin_messages():
     if auth_error:
         return auth_error
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         rows = conn.execute(
             """
             SELECT id, from_email, to_email, subject, text, sender_role, created_at
@@ -627,7 +1081,7 @@ def build_analytics(start_dt: datetime | None = None, end_dt: datetime | None = 
     prev_month_start = shift_month(this_month_start, -1)
     next_month_start = shift_month(this_month_start, 1)
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         payments = conn.execute(
             """
             SELECT amount, status, currency, consumed, created_at
@@ -879,45 +1333,52 @@ def admin_send_message():
     if auth_error:
         return auth_error
 
-    payload = request.get_json(silent=True) or {}
-    to_email = (payload.get("toEmail") or "").strip().lower()
-    subject = (payload.get("subject") or "").strip()
-    text = (payload.get("text") or "").strip()
+    payload = json_body()
+    to_email = text_field(payload, "toEmail", 254, lower=True)
+    subject = text_field(payload, "subject", 200)
+    text = text_field(payload, "text", 4000)
 
     if not validate_email(to_email):
         return jsonify({"ok": False, "message": "Некорректный email клиента"}), 400
     if len(text) < 2:
         return jsonify({"ok": False, "message": "Введите текст сообщения"}), 400
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
+        # Private inbox delivery is only allowed to accounts whose email ownership is verified.
+        account = conn.execute(
+            "SELECT id FROM customer_accounts WHERE email=? AND email_verified=1", (to_email,)
+        ).fetchone()
         conn.execute(
             """
-            INSERT INTO client_messages (from_email, to_email, subject, text, sender_role, created_at)
-            VALUES (?, ?, ?, ?, 'admin', ?)
+            INSERT INTO client_messages (from_email, to_email, subject, text, sender_role, created_at, account_id)
+            VALUES (?, ?, ?, ?, 'admin', ?, ?)
             """,
-            ("admin@roza-ogly.local", to_email, subject, text, datetime.now().isoformat()),
+            ("admin@roza-ogly.local", to_email, subject, text, datetime.now().isoformat(),
+             int(account["id"]) if account else None),
         )
         conn.commit()
 
-    return jsonify({"ok": True, "message": "Сообщение отправлено клиенту"})
+    return jsonify({
+        "ok": True,
+        "deliveredToInbox": bool(account),
+        "message": "Сообщение отправлено клиенту" if account else "Сообщение сохранено: у клиента нет подтверждённого аккаунта",
+    })
 
 
 @app.route("/api/messages/inbox", methods=["GET"])
+@limiter.limit("60 per minute")
 def client_inbox():
-    email = (request.args.get("email") or "").strip().lower()
-    if not validate_email(email):
-        return jsonify({"ok": False, "message": "Некорректный email"}), 400
-
-    with closing(get_conn()) as conn:
+    customer = require_customer()
+    with db.connect() as conn:
         rows = conn.execute(
             """
             SELECT id, from_email, to_email, subject, text, sender_role, created_at
             FROM client_messages
-            WHERE to_email=? OR from_email=?
+            WHERE account_id=?
             ORDER BY id DESC
             LIMIT 300
             """,
-            (email, email),
+            (customer["account_id"],),
         ).fetchall()
 
     return jsonify({"ok": True, "messages": [dict(r) for r in rows]})
@@ -926,164 +1387,335 @@ def client_inbox():
 @app.route("/api/messages/reply", methods=["POST"])
 @limiter.limit("30 per hour")
 def client_reply():
-    payload = request.get_json(silent=True) or {}
-    from_email = (payload.get("fromEmail") or "").strip().lower()
-    text = (payload.get("text") or "").strip()
-
-    if not validate_email(from_email):
-        return jsonify({"ok": False, "message": "Некорректный email"}), 400
+    customer = require_customer()
+    payload = json_body()
+    text = text_field(payload, "text", 4000)
     if len(text) < 2:
         return jsonify({"ok": False, "message": "Введите текст сообщения"}), 400
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         conn.execute(
             """
-            INSERT INTO client_messages (from_email, to_email, subject, text, sender_role, created_at)
-            VALUES (?, ?, ?, ?, 'client', ?)
+            INSERT INTO client_messages (from_email, to_email, subject, text, sender_role, created_at, account_id)
+            VALUES (?, ?, ?, ?, 'client', ?, ?)
             """,
-            (from_email, "admin@roza-ogly.local", "Ответ клиента", text, datetime.now().isoformat()),
+            (customer["email"], "admin@roza-ogly.local", "Ответ клиента", text,
+             datetime.now().isoformat(), customer["account_id"]),
         )
         conn.commit()
 
     return jsonify({"ok": True, "message": "Ответ отправлен администратору"})
 
 
+def serialize_order(row):
+    return {
+        "code": row["code"],
+        "kind": row["kind"],
+        "title": row["title"],
+        "amount": int(row["amount"]),
+        "currency": row["currency"],
+        "status": row["status"],
+        "enrollmentStatus": row["enrollment_status"],
+        "createdAt": row["created_at"],
+    }
+
+
+def payment_card_config():
+    number = re.sub(r"\s+", "", os.getenv("PAYMENT_CARD_NUMBER", ""))
+    holder = os.getenv("PAYMENT_CARD_HOLDER", "").strip()
+    bank = os.getenv("PAYMENT_BANK_NAME", "").strip()
+    configured = bool(re.fullmatch(r"\d{16,19}", number) and holder and bank)
+    return {
+        "configured": configured,
+        "card": {"number": number, "holder": holder, "bank": bank} if configured else None,
+    }
+
+
+@app.route("/api/payments/config", methods=["GET"])
+def get_payment_config():
+    return jsonify({"ok": True, **payment_card_config()})
+
+
+def account_owner_clause(customer: dict, token: str, email_column: str) -> tuple[str, tuple]:
+    """Records owned by the account, plus legacy guest records created in this browser for the same email."""
+    return (
+        f"(account_id=? OR (account_id IS NULL AND {email_column}=? AND access_token_hash=?))",
+        (customer["account_id"], customer["email"], capability_hash_or_sentinel(token)),
+    )
+
+
+ORDER_COLUMNS = "code, kind, title, amount, currency, status, enrollment_status, created_at"
+ORDER_PRICES = {
+    ("consultation", "Личная встреча"): 50000,
+    ("consultation", "Онлайн встреча"): 35000,
+}
+
+
+@app.route("/api/orders", methods=["POST"])
+@limiter.limit("10 per minute")
+def create_order():
+    customer = require_customer()
+    payload = json_body()
+    kind = text_field(payload, "kind", 40, lower=True)
+    title = text_field(payload, "title", 200)
+    name = text_field(payload, "name", 120) or customer["name"]
+    phone = text_field(payload, "phone", 32) or (customer["phone"] or "")
+    email = customer["email"]
+    token = request_access_token(payload)
+
+    prices = {("training", "Программа «Практик Матрицы»"): TRAINING_PRICE_KZT, **ORDER_PRICES}
+    amount = prices.get((kind, title))
+    if not amount or len(name) < 2:
+        return jsonify({"ok": False, "message": "Некорректные данные заказа"}), 400
+    if not validate_phone(phone):
+        return jsonify({"ok": False, "message": "Некорректный номер телефона"}), 400
+    card_config = payment_card_config()
+    if not card_config["configured"]:
+        return jsonify({"ok": False, "message": "Оплата временно недоступна: реквизиты не настроены"}), 503
+
+    owner_sql, owner_params = account_owner_clause(customer, token, "customer_email")
+    now = datetime.now().isoformat()
+    reused = False
+    with db.connect() as conn:
+        conn.lock(f"orders:account:{customer['account_id']}")
+        if kind == "training":
+            already_paid = conn.execute(
+                f"SELECT code FROM orders WHERE {owner_sql} AND kind='training' AND status='paid' LIMIT 1",
+                owner_params,
+            ).fetchone()
+            if already_paid:
+                raise ApiError("Обучение уже оплачено — повторная оплата не нужна", 409, alreadyPaid=True)
+        # Only unfinished orders are reused, so retries never duplicate a transfer,
+        # while a new consultation after a paid one gets its own order.
+        existing = conn.execute(
+            f"""
+            SELECT {ORDER_COLUMNS} FROM orders
+            WHERE {owner_sql} AND kind=? AND title=? AND status IN ('awaiting_payment', 'pending_review')
+            ORDER BY id DESC LIMIT 1
+            """,
+            (*owner_params, kind, title),
+        ).fetchone()
+        if existing:
+            order = serialize_order(existing)
+            reused = True
+        else:
+            code = "ORD-" + secrets.token_hex(5).upper()
+            conn.execute(
+                """
+                INSERT INTO orders (
+                    code, access_token_hash, account_id, kind, title, amount, currency, customer_name,
+                    customer_email, customer_phone, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'KZT', ?, ?, ?, 'awaiting_payment', ?, ?)
+                """,
+                (
+                    code, access_token_hash(token) if valid_access_token(token) else None,
+                    customer["account_id"], kind, title, amount, name, email, phone, now, now,
+                ),
+            )
+            order = {
+                "code": code,
+                "kind": kind,
+                "title": title,
+                "amount": amount,
+                "currency": "KZT",
+                "status": "awaiting_payment",
+                "enrollmentStatus": None,
+                "createdAt": now,
+            }
+
+    return jsonify({"ok": True, "order": order, "reused": reused, **card_config})
+
+
+@app.route("/api/orders", methods=["GET"])
+@limiter.limit("30 per minute")
+def list_orders():
+    customer = require_customer()
+    owner_sql, owner_params = account_owner_clause(customer, request_access_token(), "customer_email")
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT {ORDER_COLUMNS} FROM orders WHERE {owner_sql} ORDER BY id DESC LIMIT 50",
+            owner_params,
+        ).fetchall()
+    return jsonify({"ok": True, "orders": [serialize_order(row) for row in rows]})
+
+
+@app.route("/api/orders/<code>", methods=["GET"])
+@limiter.limit("30 per minute")
+def get_order(code):
+    customer = require_customer()
+    owner_sql, owner_params = account_owner_clause(customer, request_access_token(), "customer_email")
+    with db.connect() as conn:
+        row = conn.execute(
+            f"SELECT {ORDER_COLUMNS} FROM orders WHERE code=? AND {owner_sql}",
+            (code, *owner_params),
+        ).fetchone()
+    if not row:
+        return jsonify({"ok": False, "message": "Заказ не найден"}), 404
+    return jsonify({"ok": True, "order": serialize_order(row)})
+
+
+@app.route("/api/orders/<code>/paid", methods=["POST"])
+@limiter.limit("10 per minute")
+def mark_order_paid(code):
+    customer = require_customer()
+    payload = json_body()
+    owner_sql, owner_params = account_owner_clause(customer, request_access_token(payload), "customer_email")
+
+    reported_payment = False
+    with db.connect() as conn:
+        conn.lock(f"order:{code}")
+        row = conn.execute(
+            f"SELECT {ORDER_COLUMNS} FROM orders WHERE code=? AND {owner_sql}",
+            (code, *owner_params),
+        ).fetchone()
+        if not row:
+            return jsonify({"ok": False, "message": "Заказ не найден"}), 404
+        if row["status"] not in {"awaiting_payment", "pending_review", "paid"}:
+            return jsonify({"ok": False, "message": "Заказ больше не ожидает подтверждения"}), 409
+        if row["status"] == "awaiting_payment":
+            conn.execute(
+                "UPDATE orders SET status='pending_review', updated_at=? WHERE code=?",
+                (datetime.now().isoformat(), code),
+            )
+            row = {**dict(row), "status": "pending_review"}
+            reported_payment = True
+    if reported_payment:
+        send_notifications_async(
+            "Перевод ожидает проверки",
+            f"Клиент сообщил об оплате заказа {code}: {row['amount']} {row['currency']}, {customer['email']}.",
+        )
+    return jsonify({"ok": True, "order": serialize_order(row)})
+
+
+@app.route("/api/orders/<code>/review", methods=["POST"])
+@limiter.limit("30 per minute")
+def review_order(code):
+    if not ensure_task_secret(request):
+        return jsonify({"ok": False, "message": "Неверный task token"}), 401
+    payload = json_body()
+    action = text_field(payload, "action", 20, lower=True)
+    if action not in {"confirm", "reject"}:
+        return jsonify({"ok": False, "message": "Укажите действие confirm или reject"}), 400
+
+    notification = None
+    with db.connect() as conn:
+        conn.lock(f"order:{code}")
+        row = conn.execute("SELECT * FROM orders WHERE code=?", (code,)).fetchone()
+        if not row:
+            return jsonify({"ok": False, "message": "Заказ не найден"}), 404
+        if row["status"] != "pending_review":
+            return jsonify({"ok": False, "message": "Заказ не ожидает проверки"}), 409
+        now = datetime.now().isoformat()
+        if action == "reject":
+            conn.execute(
+                "UPDATE orders SET status='rejected', updated_at=? WHERE code=?",
+                (now, code),
+            )
+        else:
+            enrollment_status = None
+            if row["kind"] == "training":
+                conn.lock("training-capacity")
+                duplicate = conn.execute(
+                    "SELECT id FROM training_enrollments WHERE LOWER(email)=? LIMIT 1",
+                    (row["customer_email"].lower(),),
+                ).fetchone()
+                if duplicate:
+                    return jsonify({"ok": False, "message": "Для клиента уже создана заявка на обучение"}), 409
+                accepted = conn.execute(
+                    "SELECT COUNT(*) AS c FROM training_enrollments WHERE status='accepted'"
+                ).fetchone()["c"]
+                enrollment_status = "accepted" if accepted < TRAINING_CAPACITY else "waitlist"
+                conn.execute(
+                    """
+                    INSERT INTO training_enrollments
+                    (name, email, phone, payment_verified, payment_id, status, created_at)
+                    VALUES (?, ?, ?, 1, ?, ?, ?)
+                    """,
+                    (
+                        row["customer_name"], row["customer_email"], row["customer_phone"],
+                        code, enrollment_status, now,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO purchases
+                    (kind, title, unit_price, quantity, amount, currency, customer_name,
+                     customer_email, customer_phone, payment_id, status, created_at)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'paid', ?)
+                    """,
+                    (
+                        row["kind"], row["title"], row["amount"], row["amount"], row["currency"],
+                        row["customer_name"], row["customer_email"], row["customer_phone"], code, now,
+                    ),
+                )
+            conn.execute(
+                "UPDATE orders SET status='paid', enrollment_status=?, updated_at=? WHERE code=?",
+                (enrollment_status, now, code),
+            )
+            notification = (
+                "Оплата подтверждена",
+                f"Заказ {code} подтвержден для {row['customer_name']} ({row['customer_email']}).",
+            )
+        updated = conn.execute(
+            """
+            SELECT code, kind, title, amount, currency, status, enrollment_status, created_at
+            FROM orders WHERE code=?
+            """,
+            (code,),
+        ).fetchone()
+
+    if notification:
+        send_notifications_async(*notification)
+    return jsonify({"ok": True, "order": serialize_order(updated)})
+
+
 @app.route("/api/payments/verify", methods=["POST"])
 @limiter.limit("20 per minute")
 def verify_payment():
-    payload = request.get_json(silent=True) or {}
-    amount = int(payload.get("amount") or 0)
-    currency = (payload.get("currency") or "KZT").strip().upper()
-    card = (payload.get("card") or "").replace(" ", "")
-    exp = (payload.get("exp") or "").strip()
-    cvv = (payload.get("cvv") or "").strip()
-    holder = (payload.get("holder") or "").strip()
-
-    if amount <= 0 or currency != "KZT":
-        return jsonify({"ok": False, "message": "Укажите корректную сумму и валюту платежа"}), 400
-
-    mode = os.getenv("PAYMENT_VERIFY_MODE", "mock").strip().lower()
-    if mode not in {"mock", "strict"}:
-        mode = "mock"
-
-    if mode == "strict":
-        return jsonify({"ok": False, "message": "Strict-провайдер не настроен. Установите PAYMENT_VERIFY_MODE=mock или подключите шлюз."}), 503
-
-    if not luhn_valid(card):
-        return jsonify({"ok": False, "message": "Неверный номер карты"}), 400
-    if not exp_valid(exp):
-        return jsonify({"ok": False, "message": "Срок карты истек или некорректен"}), 400
-    if not re.match(r"^\d{3,4}$", cvv):
-        return jsonify({"ok": False, "message": "Некорректный CVV"}), 400
-    if len(holder) < 2:
-        return jsonify({"ok": False, "message": "Укажите имя владельца"}), 400
-
-    payment_id = f"PAY-{int(datetime.now().timestamp() * 1000)}"
-    with closing(get_conn()) as conn:
-        conn.execute(
-            """
-            INSERT INTO payments (payment_id, amount, currency, card_last4, holder, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'paid', ?)
-            """,
-            (payment_id, amount, currency, card[-4:], holder, datetime.now().isoformat()),
-        )
-        conn.commit()
-
-    return jsonify({"ok": True, "paymentId": payment_id, "status": "paid"})
+    return jsonify({"ok": False, "message": "Самостоятельное подтверждение картой отключено"}), 410
 
 
 @app.route("/api/purchases/confirm", methods=["POST"])
 @limiter.limit("15 per minute")
 def confirm_purchase():
-    payload = request.get_json(silent=True) or {}
-    kind = (payload.get("kind") or "").strip().lower()
-    title = (payload.get("title") or "").strip()
-    unit_price = int(payload.get("unitPrice") or 0)
-    quantity = int(payload.get("quantity") or 1)
-    amount = int(payload.get("amount") or 0)
-    currency = (payload.get("currency") or "KZT").strip().upper()
-    name = (payload.get("name") or "").strip()
-    email = (payload.get("email") or "").strip()
-    phone = (payload.get("phone") or "").strip()
-    payment_id = (payload.get("paymentId") or "").strip()
-
-    if kind not in {"product", "consultation"}:
-        return jsonify({"ok": False, "message": "Неизвестный тип покупки"}), 400
-    if not all([title, name, email, payment_id]) or amount <= 0:
-        return jsonify({"ok": False, "message": "Для оплаты нужно заполнить данные и подтвердить платеж"}), 400
-    if quantity < 1 or quantity > 9 or unit_price <= 0:
-        return jsonify({"ok": False, "message": "Некорректное количество или цена товара"}), 400
-    if unit_price * quantity != amount:
-        return jsonify({"ok": False, "message": "Сумма не совпадает с количеством товара"}), 400
-    if currency != "KZT":
-        return jsonify({"ok": False, "message": "Поддерживается только валюта KZT"}), 400
-    if not validate_email(email):
-        return jsonify({"ok": False, "message": "Некорректный email"}), 400
-    if not validate_phone(phone):
-        return jsonify({"ok": False, "message": "Некорректный номер телефона"}), 400
-
-    with closing(get_conn()) as conn:
-        payment = conn.execute(
-            "SELECT payment_id, amount, currency, status, consumed, card_last4 FROM payments WHERE payment_id=?",
-            (payment_id,),
-        ).fetchone()
-        if not payment or payment["status"] != "paid":
-            return jsonify({"ok": False, "message": "Платеж не подтвержден"}), 409
-        if int(payment["consumed"]) == 1:
-            return jsonify({"ok": False, "message": "Этот платеж уже использован"}), 409
-        if int(payment["amount"]) != amount or payment["currency"] != currency:
-            return jsonify({"ok": False, "message": "Сумма платежа не совпадает с товаром или консультацией"}), 409
-
-        conn.execute(
-            """
-            INSERT INTO purchases (kind, title, unit_price, quantity, amount, currency, customer_name, customer_email, customer_phone, payment_id, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)
-            """,
-            (kind, title, unit_price, quantity, amount, currency, name, email, phone, payment_id, datetime.now().isoformat()),
-        )
-        conn.execute("UPDATE payments SET consumed=1 WHERE payment_id=?", (payment_id,))
-        purchase_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-        conn.commit()
-
-    label = "консультация" if kind == "consultation" else "товар"
-    text = (
-        f"Новая оплаченная покупка: {label} «{title}», {quantity} шт., {amount} {currency}, "
-        f"клиент {name}, {email}, карта ****{payment['card_last4']}, paymentId={payment_id}"
-    )
-    notify = send_all_notifications("Новая оплата в кабинете", text)
-
-    return jsonify(
-        {
-            "ok": True,
-            "purchaseId": purchase_id,
-            "status": "paid",
-            "kind": kind,
-            "title": title,
-            "notifications": notify,
-        }
-    )
+    return jsonify({"ok": False, "message": "Старый способ подтверждения оплаты отключён"}), 410
 
 
 @app.route("/api/bookings", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_user_bookings():
-    """Возвращает предстоящие и прошедшие записи пользователя по email."""
-    email = (request.args.get("email") or "").strip().lower()
-    if not email or not validate_email(email):
-        return jsonify({"ok": False, "message": "Укажите корректный email"}), 400
-
+    """Возвращает записи аккаунта (и гостевые записи этого браузера с тем же email)."""
+    customer = optional_customer()
+    token = request_access_token()
     now = datetime.now()
-    with closing(get_conn()) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, name, service, format, booking_at, created_at
-            FROM bookings
-            WHERE LOWER(email) = ?
-            ORDER BY booking_at DESC
-            LIMIT 50
-            """,
-            (email,),
-        ).fetchall()
+    with db.connect() as conn:
+        if customer:
+            owner_sql, owner_params = account_owner_clause(customer, token, "email")
+            rows = conn.execute(
+                f"""
+                SELECT id, name, service, format, booking_at, created_at
+                FROM bookings
+                WHERE {owner_sql} AND status <> 'cancelled'
+                ORDER BY booking_at DESC
+                LIMIT 50
+                """,
+                owner_params,
+            ).fetchall()
+        else:
+            email = (request.args.get("email") or "").strip().lower()
+            if not validate_email(email) or not valid_access_token(token):
+                return jsonify({"ok": False, "message": "Не удалось подтвердить доступ к записям"}), 401
+            rows = conn.execute(
+                """
+                SELECT id, name, service, format, booking_at, created_at
+                FROM bookings
+                WHERE email=? AND access_token_hash=? AND status <> 'cancelled'
+                ORDER BY booking_at DESC
+                LIMIT 50
+                """,
+                (email, access_token_hash(token)),
+            ).fetchall()
 
     upcoming = []
     past = []
@@ -1116,18 +1748,25 @@ def booking_slots():
     if not target_day:
         return jsonify({"ok": False, "message": "Укажите дату в формате YYYY-MM-DD"}), 400
 
-    day_start = target_day.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + timedelta(days=1)
+    target_start = target_day.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = target_start - timedelta(days=1)
+    day_end = target_start + timedelta(days=2)
 
-    with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT booking_at FROM bookings").fetchall()
+    with db.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT booking_at FROM bookings
+            WHERE status <> 'cancelled' AND booking_at >= ? AND booking_at < ?
+            """,
+            (day_start.isoformat(), day_end.isoformat()),
+        ).fetchall()
 
     booked = [parse_iso(r["booking_at"]) for r in rows]
     booked = [x for x in booked if x]
 
     slots = []
-    t = day_start.replace(hour=BOOKING_START_HOUR, minute=0)
-    while t < day_start.replace(hour=BOOKING_END_HOUR, minute=0):
+    t = target_start.replace(hour=BOOKING_START_HOUR, minute=0)
+    while t < target_start.replace(hour=BOOKING_END_HOUR, minute=0):
         slots.append(t)
         t += timedelta(minutes=SLOT_STEP_MINUTES)
 
@@ -1175,19 +1814,19 @@ def process_reminders_once():
     sent_24h = 0
     sent_2h = 0
 
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         rows_24h = conn.execute(
             """
             SELECT id, name, email, phone, service, booking_at, format
             FROM bookings
-            WHERE reminder_24h_sent=0
+            WHERE reminder_24h_sent=0 AND status <> 'cancelled'
             """
         ).fetchall()
         rows_2h = conn.execute(
             """
             SELECT id, name, email, phone, service, booking_at, format
             FROM bookings
-            WHERE reminder_2h_sent=0
+            WHERE reminder_2h_sent=0 AND status <> 'cancelled'
             """
         ).fetchall()
 
@@ -1206,7 +1845,7 @@ def process_reminders_once():
         )
         notify = send_all_notifications("Напоминание клиенту за 24 часа", text)
         if notification_any_success(notify):
-            with closing(get_conn()) as conn:
+            with db.connect() as conn:
                 conn.execute(
                     "UPDATE bookings SET reminder_24h_sent=1, reminder_24h_sent_at=? WHERE id=? AND reminder_24h_sent=0",
                     (now.isoformat(), row["id"]),
@@ -1229,7 +1868,7 @@ def process_reminders_once():
         )
         notify = send_all_notifications("Напоминание клиенту за 2 часа", text)
         if notification_any_success(notify):
-            with closing(get_conn()) as conn:
+            with db.connect() as conn:
                 conn.execute(
                     "UPDATE bookings SET reminder_2h_sent=1, reminder_2h_sent_at=? WHERE id=? AND reminder_2h_sent=0",
                     (now.isoformat(), row["id"]),
@@ -1259,7 +1898,7 @@ def start_reminder_worker_once():
             try:
                 process_reminders_once()
             except Exception:
-                pass
+                log.exception("Reminder worker failed")
             time.sleep(max(30, REMINDER_JOB_INTERVAL_SECONDS))
 
     thread = threading.Thread(target=worker, daemon=True, name="reminder-worker")
@@ -1269,15 +1908,17 @@ def start_reminder_worker_once():
 @app.route("/api/bookings", methods=["POST"])
 @limiter.limit("20 per minute")
 def create_booking():
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or "").strip()
-    email = (payload.get("email") or "").strip()
-    phone = (payload.get("phone") or "").strip()
-    service = (payload.get("service") or "").strip()
-    date = (payload.get("date") or "").strip()
-    time = (payload.get("time") or "").strip()
-    form = (payload.get("format") or "").strip()
-    note = (payload.get("note") or "").strip()
+    payload = json_body()
+    customer = optional_customer()
+    name = text_field(payload, "name", 120) or (customer["name"] if customer else "")
+    email = text_field(payload, "email", 254, lower=True) or (customer["email"] if customer else "")
+    phone = text_field(payload, "phone", 32) or ((customer["phone"] or "") if customer else "")
+    service = text_field(payload, "service", 120)
+    token = request_access_token(payload)
+    date = text_field(payload, "date", 10)
+    time = text_field(payload, "time", 5)
+    form = text_field(payload, "format", 60)
+    note = text_field(payload, "note", 2000)
 
     if not all([name, email, service, date, time]):
         return jsonify({"ok": False, "message": "Заполните обязательные поля"}), 400
@@ -1285,17 +1926,32 @@ def create_booking():
         return jsonify({"ok": False, "message": "Некорректный email"}), 400
     if not validate_phone(phone):
         return jsonify({"ok": False, "message": "Некорректный номер телефона"}), 400
+    if customer is None and not valid_access_token(token):
+        return jsonify({"ok": False, "message": "Не удалось подтвердить доступ к записи"}), 400
+    email = email.lower()
 
     booking_at = parse_iso(f"{date}T{time}:00")
     if not booking_at:
         return jsonify({"ok": False, "message": "Некорректная дата или время"}), 400
+    minutes_from_open = (booking_at.hour - BOOKING_START_HOUR) * 60 + booking_at.minute
+    if minutes_from_open < 0 or booking_at.hour >= BOOKING_END_HOUR or minutes_from_open % SLOT_STEP_MINUTES != 0:
+        return jsonify({"ok": False, "message": "Выберите время из доступных интервалов"}), 400
 
     now = datetime.now()
     if booking_at < now + timedelta(minutes=30):
         return jsonify({"ok": False, "message": "Нельзя записаться на прошедшее или слишком близкое время"}), 400
 
-    with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT booking_at FROM bookings").fetchall()
+    day_start = booking_at.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    day_end = day_start + timedelta(days=3)
+    with db.connect() as conn:
+        conn.lock("bookings")
+        rows = conn.execute(
+            """
+            SELECT booking_at FROM bookings
+            WHERE status <> 'cancelled' AND booking_at >= ? AND booking_at < ?
+            """,
+            (day_start.isoformat(), day_end.isoformat()),
+        ).fetchall()
         for row in rows:
             existing = parse_iso(row["booking_at"])
             if not existing:
@@ -1315,14 +1971,16 @@ def create_booking():
         conn.execute(
             """
             INSERT INTO bookings (
-                name, email, phone, service, format, note, booking_at, created_at,
+                name, email, access_token_hash, account_id, phone, service, format, note, booking_at, created_at,
                 reminder_24h_sent, reminder_2h_sent
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
             """,
             (
                 name,
                 email,
+                access_token_hash(token) if valid_access_token(token) else None,
+                customer["account_id"] if customer else None,
                 phone,
                 service,
                 form,
@@ -1343,14 +2001,14 @@ def create_booking():
         f"Формат: {form or '—'}\n"
         f"Комментарий: {note or '—'}"
     )
-    notify = send_all_notifications("Новая запись на прием", msg)
+    send_notifications_async("Новая запись на прием", msg)
 
-    return jsonify({"ok": True, "message": "Вы успешно записаны", "notifications": notify})
+    return jsonify({"ok": True, "message": "Вы успешно записаны", "notificationQueued": True})
 
 
 @app.route("/api/training/status", methods=["GET"])
 def training_status():
-    with closing(get_conn()) as conn:
+    with db.connect() as conn:
         accepted = conn.execute("SELECT COUNT(*) c FROM training_enrollments WHERE status='accepted'").fetchone()["c"]
         waiting = conn.execute("SELECT COUNT(*) c FROM training_enrollments WHERE status='waitlist'").fetchone()["c"]
     return jsonify({"ok": True, "capacity": TRAINING_CAPACITY, "accepted": accepted, "waiting": waiting})
@@ -1359,69 +2017,14 @@ def training_status():
 @app.route("/api/training/enroll", methods=["POST"])
 @limiter.limit("15 per minute")
 def enroll_training():
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or "").strip()
-    email = (payload.get("email") or "").strip()
-    phone = (payload.get("phone") or "").strip()
-    payment_id = (payload.get("paymentId") or "").strip()
-
-    if not all([name, email, payment_id]):
-        return jsonify({"ok": False, "message": "Для зачисления нужна подтвержденная оплата"}), 400
-    if not validate_email(email):
-        return jsonify({"ok": False, "message": "Некорректный email"}), 400
-    if not validate_phone(phone):
-        return jsonify({"ok": False, "message": "Некорректный номер телефона"}), 400
-
-    with closing(get_conn()) as conn:
-        payment = conn.execute(
-            "SELECT payment_id, status, consumed, card_last4 FROM payments WHERE payment_id=?",
-            (payment_id,),
-        ).fetchone()
-        if not payment or payment["status"] != "paid":
-            return jsonify({"ok": False, "message": "Платеж не подтвержден"}), 409
-        if int(payment["consumed"]) == 1:
-            return jsonify({"ok": False, "message": "Этот платеж уже использован"}), 409
-
-        dup = conn.execute("SELECT id FROM training_enrollments WHERE email=?", (email,)).fetchone()
-        if dup:
-            return jsonify({"ok": False, "message": "Вы уже в списке обучения"}), 409
-
-        accepted = conn.execute("SELECT COUNT(*) c FROM training_enrollments WHERE status='accepted'").fetchone()["c"]
-        status = "accepted" if accepted < TRAINING_CAPACITY else "waitlist"
-
-        conn.execute(
-            """
-            INSERT INTO training_enrollments (name, email, phone, payment_verified, payment_id, status, created_at)
-            VALUES (?, ?, ?, 1, ?, ?, ?)
-            """,
-            (name, email, phone, payment_id, status, datetime.now().isoformat()),
-        )
-        conn.execute("UPDATE payments SET consumed=1 WHERE payment_id=?", (payment_id,))
-        conn.commit()
-
-    if status == "accepted":
-        text = f"Новый ученик зачислен: {name}, {email}, карта ****{payment['card_last4']}, paymentId={payment_id}"
-    else:
-        text = f"Оплата принята, но мест нет. Добавлен в лист ожидания: {name}, {email}, paymentId={payment_id}"
-
-    notify = send_all_notifications("Новая заявка на обучение", text)
-
-    return jsonify(
-        {
-            "ok": True,
-            "status": status,
-            "capacity": TRAINING_CAPACITY,
-            "message": "Вы зачислены в обучение" if status == "accepted" else "Места закончились: вы добавлены в лист ожидания",
-            "notifications": notify,
-        }
-    )
+    return jsonify({"ok": False, "message": "Старый способ зачисления отключён"}), 410
 
 
 @app.route("/api/support", methods=["POST"])
 @limiter.limit("20 per minute")
 def support_ai():
-    payload = request.get_json(silent=True) or {}
-    question = (payload.get("question") or "").strip()
+    payload = json_body()
+    question = text_field(payload, "question", 2000)
     if len(question) < 4:
         return jsonify({"ok": False, "message": "Опишите проблему подробнее"}), 400
 
