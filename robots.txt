@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://kismetmatrix.github.io/---/sitemap.xml
+Sitemap: https://tim-official.github.io/---/sitemap.xml
