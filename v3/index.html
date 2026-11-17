@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Матрица-Судьбы — расшифровка характера по дате рождения</title>
+    <meta name="description" content="Рассчитайте матрицу судьбы и знак зодиака по дате рождения. Пять главных энергий и действие на неделю по каждой — бесплатно. Полный разбор и консультации в Алматы и онлайн.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="theme-color" content="#04070b">
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;500;800&family=Golos+Text:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="vendor/lenis.css">
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+    <a class="skip" href="#calc">Перейти к расчёту</a>
+    <div class="poster" aria-hidden="true"></div>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div class="grain" aria-hidden="true"></div>
+    <p class="note" id="note" role="status" hidden></p>
+
+    <header class="bar" id="bar">
+        <a class="brand" href="#top">Матрица-Судьбы</a>
+        <nav aria-label="Разделы"><a href="#calc">Расчёт</a><a href="#inside">Разбор</a><a href="#master">Мастер</a><a href="#price">Цены</a></nav>
+        <a class="pill" href="#price">Записаться</a>
+    </header>
+
+    <main id="top">
+        <!-- 1. Кадр: кристалл и слово -->
+        <section class="s-hero" data-scene="hero" aria-labelledby="heroTitle">
+            <div class="hero-copy">
+                <p class="mono">Нумерология · Алматы и онлайн</p>
+                <h1 id="heroTitle">Ваша дата рождения — <em>карта</em> характера</h1>
+                <a class="cta" href="#calc"><span>Рассчитать бесплатно</span><i aria-hidden="true">→</i></a>
+            </div>
+            <div class="hero-meta mono" aria-hidden="true">
+                <span>Небо над Алматы</span>
+                <span>43°14′ с. ш. · 76°53′ в. д.</span>
+                <span id="clock">—</span>
+            </div>
+        </section>
+
+        <!-- 2. Кадр: одна дата -->
+        <section class="s-calc" id="calc" data-scene="calc" aria-labelledby="calcTitle">
+            <form class="dateform" id="dateForm" autocomplete="off" novalidate>
+                <h2 class="mono" id="calcTitle">Ваша дата рождения</h2>
+                <div class="digits">
+                    <label><input id="dDay" inputmode="numeric" maxlength="2" placeholder="ДД" aria-label="День"></label>
+                    <i aria-hidden="true">·</i>
+                    <label><input id="dMonth" inputmode="numeric" maxlength="2" placeholder="ММ" aria-label="Месяц"></label>
+                    <i aria-hidden="true">·</i>
+                    <label><input id="dYear" class="y" inputmode="numeric" maxlength="4" placeholder="ГГГГ" aria-label="Год"></label>
+                </div>
+                <button class="cta" type="submit"><span>Открыть мою карту</span><i aria-hidden="true">→</i></button>
+                <p class="hint" id="dateHint">Бесплатно и без регистрации. Расчёт идёт в вашем браузере, дата никуда не отправляется.</p>
+            </form>
+        </section>
+
+        <!-- 3. Результат -->
+        <section class="s-result" id="result" data-scene="none" aria-labelledby="resultTitle" hidden>
+            <div class="wrap">
+                <p class="mono" id="resultMeta"></p>
+                <h2 class="h-xl" id="resultTitle">В центре вашей матрицы — <span id="coreName"></span></h2>
+                <p class="lead" id="coreDesc"></p>
+                <ol class="formula" id="formula" aria-label="Как получены числа"></ol>
+
+                <div class="result-grid">
+                    <figure class="chart">
+                        <svg id="chart" viewBox="-40 -40 380 380" role="img" aria-label="Октаграмма вашей даты рождения"></svg>
+                        <figcaption>Ромб — личные энергии, квадрат — родовые, центр — суть.</figcaption>
+                        <div class="sign">
+                            <svg id="signSky" viewBox="0 0 200 120" aria-hidden="true"></svg>
+                            <div><p class="mono" id="signMeta"></p><p class="sign-name" id="signName"></p><p class="sign-trait" id="signTrait"></p></div>
+                        </div>
+                    </figure>
+                    <div class="chapters" id="chapters"></div>
+                </div>
+
+                <div class="more">
+                    <p class="h-l">Это пять главных точек. В матрице их больше тридцати</p>
+                    <ul class="locked" aria-label="Что входит в полный разбор">
+                        <li>Денежный канал</li><li>Отношения и партнёр</li><li>Предназначение</li><li>Таланты рода</li><li>Кармические задачи</li><li>Прогноз по годам</li>
+                    </ul>
+                    <a class="cta" href="#price"><span>Получить полный разбор</span><i aria-hidden="true">→</i></a>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Пауза: кристалл сквозь слово -->
+        <section class="s-pause" data-scene="pause" aria-label="Характер">
+            <p class="pause-copy">Число не решает за вас. <br>Оно показывает, с чем вы работаете.</p>
+        </section>
+
+        <!-- 5. Что внутри разбора -->
+        <section class="s-inside" id="inside" data-scene="none" aria-labelledby="insideTitle">
+            <div class="wrap inside-grid">
+                <div>
+                    <p class="mono">Полный разбор</p>
+                    <h2 class="h-xl" id="insideTitle">Документ о вас, а не общий гороскоп</h2>
+                    <p class="lead">Каждая позиция матрицы разобрана отдельно: что она значит, как проявляется в плюсе и в минусе и что с этим делать.</p>
+                    <dl class="facts">
+                        <div><dt>Деньги</dt><dd>Через что к вам приходит доход и что его перекрывает.</dd></div>
+                        <div><dt>Отношения</dt><dd>Какой партнёр вам подходит и где вы повторяете сценарий.</dd></div>
+                        <div><dt>Предназначение</dt><dd>Задачи первой и второй половины жизни.</dd></div>
+                    </dl>
+                </div>
+                <div class="pages" aria-label="Пример страниц разбора">
+                    <article class="pg"><p class="pg-k">Денежный канал</p><p class="pg-n">8</p><i></i><i></i><i class="s"></i><i></i><i class="s"></i><i></i></article>
+                    <article class="pg"><p class="pg-k">Ваша матрица</p><svg viewBox="0 0 100 100" aria-hidden="true"><rect x="22" y="22" width="56" height="56"/><rect x="22" y="22" width="56" height="56" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27"/><circle cx="50" cy="50" r="4" class="dot"/></svg><i></i><i class="s"></i><i></i></article>
+                    <article class="pg"><p class="pg-k">Отношения</p><p class="pg-n">6</p><i></i><i class="s"></i><i></i><i></i><i class="s"></i><i></i></article>
+                    <p class="pages-cap mono">Пример страниц</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. Мастер -->
+        <section class="s-master" id="master" data-opaque aria-labelledby="masterTitle">
+            <div class="wrap master-grid">
+                <div class="portrait" data-todo="Фото мастера"><span>Место для фотографии мастера</span></div>
+                <div>
+                    <p class="mono">Мастер</p>
+                    <h2 class="h-xl" id="masterTitle">Разбор делает человек, а не программа</h2>
+                    <p class="lead">Калькулятор считает числа. Связать их с вашей жизнью, работой и отношениями может только мастер, который задаёт вопросы и слушает ответы.</p>
+                    <p class="todo">Здесь будут имя, опыт и история мастера. Пришлите текст и фото — раздел заполнится.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 7. Шаги -->
+        <section class="s-steps" data-opaque aria-labelledby="stepsTitle">
+            <div class="wrap">
+                <h2 class="h-xl" id="stepsTitle">Как проходит разбор</h2>
+                <ol class="steps">
+                    <li><span class="step-n">1</span><h3>Вы пишете в Telegram</h3><p>Дата рождения и вопрос, с которым пришли. Ответ в день обращения, с понедельника по субботу.</p></li>
+                    <li><span class="step-n">2</span><h3>Мастер считает матрицу</h3><p>Все позиции и связи между ними, с акцентом на ваш вопрос.</p></li>
+                    <li><span class="step-n">3</span><h3>Встреча и ответы</h3><p>Онлайн или лично в Алматы. Вы уходите с понятным планом действий.</p></li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- 8. Цены -->
+        <section class="s-price" id="price" data-scene="price" aria-labelledby="priceTitle">
+            <div class="wrap price-grid">
+                <div class="offer">
+                    <p class="mono" id="priceTitle">Полный разбор матрицы</p>
+                    <p class="price" data-todo="цена">14 900 ₸</p>
+                    <p class="lead">Все позиции матрицы: деньги, отношения, предназначение, таланты рода.</p>
+                    <a class="cta" href="https://t.me/matrica_sudby" target="_blank" rel="noopener"><span>Заказать в Telegram</span><i aria-hidden="true">→</i></a>
+                </div>
+                <div class="offer offer-2">
+                    <p class="mono">Личная консультация</p>
+                    <p class="price" data-todo="цена">29 900 ₸</p>
+                    <p>Онлайн или в Алматы. Разбор вашей ситуации по матрице.</p>
+                    <a class="link" href="https://t.me/matrica_sudby" target="_blank" rel="noopener">Записаться →</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- 9. Вопросы -->
+        <section class="s-faq" data-opaque aria-labelledby="faqTitle">
+            <div class="wrap faq-grid">
+                <h2 class="h-xl" id="faqTitle">Частые вопросы</h2>
+                <div class="faq">
+                    <details><summary>Это научный метод?</summary><p>Нет. Нумерология и астрология не доказаны наукой. Матрица — инструмент самопознания: способ посмотреть на свой характер со стороны и выбрать, над чем работать.</p></details>
+                    <details><summary>Что нужно для расчёта?</summary><p>Только дата рождения. Время и место рождения для матрицы не требуются.</p></details>
+                    <details><summary>Куда уходит моя дата рождения?</summary><p>Никуда. Бесплатный расчёт выполняется прямо в вашем браузере, на сервер дата не отправляется.</p></details>
+                    <details><summary>Чем полный разбор отличается от бесплатного?</summary><p>Бесплатно вы видите пять главных точек. В полном разборе мастер проходит все позиции и связывает их с вашим вопросом.</p></details>
+                    <details><summary>Можно ли заменить этим врача или психолога?</summary><p>Нет. Разбор не заменяет консультацию врача, психолога, юриста или финансового специалиста.</p></details>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="foot" data-opaque>
+        <div class="wrap foot-grid">
+            <p class="foot-brand">Матрица-Судьбы</p>
+            <nav aria-label="Документы"><a href="../privacy.html">Политика конфиденциальности</a><a href="../terms.html">Соглашение и оферта</a><a href="../cookies.html">Cookie</a><a href="https://t.me/matrica_sudby" target="_blank" rel="noopener">Telegram</a></nav>
+            <p class="fine">© 2026 · Алматы · Для лиц старше 18 лет. Нумерология и астрология не являются наукой, результат не гарантируется.</p>
+        </div>
+    </footer>
+
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/ScrollTrigger.min.js"></script>
+    <script src="vendor/SplitText.min.js"></script>
+    <script src="vendor/ScrambleTextPlugin.min.js"></script>
+    <script src="vendor/DrawSVGPlugin.min.js"></script>
+    <script src="vendor/lenis.min.js"></script>
+    <script src="js/ui.js"></script>
+    <script type="module" src="js/scene.js"></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

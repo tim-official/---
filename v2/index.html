@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Матрица-Судьбы — расшифровка личности по дате рождения</title>
+    <meta name="description" content="Рассчитайте матрицу судьбы и знак зодиака по дате рождения. Бесплатная мини-расшифровка за минуту, полный разбор и консультации в Алматы и онлайн.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://roza-ogly-api.onrender.com http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self'">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="theme-color" content="#04111a">
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;500;700;800&family=Golos+Text:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="vendor/lenis.css">
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+    <a class="skip" href="#calc">Перейти к расчёту</a>
+
+    <!-- Небо: WebGL-холст на всю страницу -->
+    <canvas id="sky" aria-hidden="true"></canvas>
+
+    <header class="bar">
+        <a class="brand" href="#top" aria-label="Матрица-Судьбы, на главную">
+            <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect x="8" y="8" width="24" height="24" transform="rotate(45 20 20)"/><rect x="9" y="9" width="22" height="22"/><circle cx="20" cy="20" r="2.6"/></svg>
+            <span>Матрица-Судьбы</span>
+        </a>
+        <nav class="bar-nav" aria-label="Разделы">
+            <a href="#calc">Расчёт</a>
+            <a href="#method">Как считаем</a>
+            <a href="#zodiac">Зодиак</a>
+            <a href="#offer">Разборы</a>
+        </nav>
+        <a class="bar-cta" href="#offer">Записаться</a>
+    </header>
+
+    <main id="top">
+        <!-- 1. Первый экран -->
+        <section class="hero" aria-labelledby="heroTitle">
+            <div class="hero-inner">
+                <p class="hero-kicker"><span class="dot"></span>Небо над Алматы · 43° с. ш. · сейчас</p>
+                <h1 id="heroTitle" class="hero-title">Ваша дата рождения — <em>карта</em> характера</h1>
+                <p class="hero-lead">Считаем матрицу судьбы и знак зодиака по дате рождения. Через минуту вы увидите свои 5 главных энергий и получите по каждой понятное действие на неделю.</p>
+
+                <form class="datebox" id="calc" autocomplete="off" novalidate>
+                    <label class="datebox-label" for="dDay">Дата рождения</label>
+                    <div class="datebox-row">
+                        <div class="dfield"><input id="dDay" inputmode="numeric" maxlength="2" placeholder="ДД" aria-label="День"><span>день</span></div>
+                        <i class="dsep">.</i>
+                        <div class="dfield"><input id="dMonth" inputmode="numeric" maxlength="2" placeholder="ММ" aria-label="Месяц"><span>месяц</span></div>
+                        <i class="dsep">.</i>
+                        <div class="dfield dfield-y"><input id="dYear" inputmode="numeric" maxlength="4" placeholder="ГГГГ" aria-label="Год"><span>год</span></div>
+                        <button class="btn-sky" type="submit"><span>Открыть мою карту</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+                    </div>
+                    <p class="datebox-hint" id="dateHint">Бесплатно и без регистрации. Дата не уходит на сервер, расчёт идёт в вашем браузере.</p>
+                </form>
+            </div>
+
+            <div class="hero-foot">
+                <span>Прокрутите, чтобы увидеть, как это устроено</span>
+                <span class="scroll-line" aria-hidden="true"></span>
+            </div>
+
+            <svg class="ridge ridge-back" viewBox="0 0 1600 300" preserveAspectRatio="none" aria-hidden="true"><path d="M0 300V190l90-38 70 22 110-70 80 36 60-18 120-86 90 60 70-24 130 80 110-52 90 30 120-74 100 56 80-22 130 70 80-30 70 20v148z"/></svg>
+            <svg class="ridge ridge-front" viewBox="0 0 1600 260" preserveAspectRatio="none" aria-hidden="true"><path d="M0 260V176l120-28 90 34 140-62 110 46 80-20 160 52 120-40 90 26 150-58 120 42 110-18 110 30v78z"/></svg>
+        </section>
+
+        <!-- 2. Результат -->
+        <section class="result" id="result" aria-labelledby="resultTitle" hidden>
+            <div class="wrap">
+                <header class="result-head">
+                    <p class="eyebrow" id="resultMeta">Карта · 14.03.1991</p>
+                    <h2 id="resultTitle" class="h2">Центр вашей матрицы — <span id="coreName">аркан 12</span></h2>
+                    <p class="lead" id="coreDesc"></p>
+                </header>
+
+                <div class="result-grid">
+                    <figure class="chart">
+                        <svg id="chart" viewBox="-40 -40 380 380" role="img" aria-labelledby="chartCap"></svg>
+                        <figcaption id="chartCap">Октаграмма вашей даты. Внешний ромб — личные энергии, квадрат — родовые, центр — суть.</figcaption>
+                    </figure>
+
+                    <div class="readings" id="readings"></div>
+                </div>
+
+                <aside class="sign" id="signCard" aria-label="Знак зодиака">
+                    <svg id="signSky" viewBox="0 0 200 120" aria-hidden="true"></svg>
+                    <div>
+                        <p class="eyebrow" id="signMeta">Знак зодиака</p>
+                        <h3 class="h3" id="signName">Рыбы</h3>
+                        <p id="signTrait"></p>
+                    </div>
+                </aside>
+
+                <div class="locked">
+                    <div class="locked-list" aria-hidden="true">
+                        <span>Денежный канал</span><span>Отношения и партнёр</span><span>Предназначение до 40 и после</span><span>Кармический хвост</span><span>Таланты рода</span><span>Прогноз по годам</span>
+                    </div>
+                    <div class="locked-cta">
+                        <p class="h3">Это 5 из 32 позиций вашей матрицы</p>
+                        <p>Полный разбор объясняет каждую позицию и связи между ними. Готовите вопросы, получаете ответы с примерами из вашей жизни.</p>
+                        <a class="btn-sky" href="#offer"><span>Получить полный разбор</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. Как считаем -->
+        <section class="method" id="method" aria-labelledby="methodTitle">
+            <div class="wrap">
+                <p class="eyebrow">Метод</p>
+                <h2 id="methodTitle" class="h2">Никакой магии в расчёте. <br>Только арифметика вашей даты</h2>
+                <p class="lead">Каждое число в матрице можно проверить на листе бумаги. Числа больше 22 сводим сложением цифр, потому что арканов 22.</p>
+
+                <ol class="steps" id="steps">
+                    <li class="step">
+                        <span class="step-n">День</span>
+                        <p class="step-calc"><b data-k="dd">14</b><i>→</i><b data-k="A">14</b></p>
+                        <p>Личность. Каким вас видят люди при первой встрече.</p>
+                    </li>
+                    <li class="step">
+                        <span class="step-n">Месяц</span>
+                        <p class="step-calc"><b data-k="mm">3</b><i>→</i><b data-k="B">3</b></p>
+                        <p>Таланты. Что даётся легко и приносит радость.</p>
+                    </li>
+                    <li class="step">
+                        <span class="step-n">Год</span>
+                        <p class="step-calc"><b data-k="yy">1+9+9+1</b><i>→</i><b data-k="V">20</b></p>
+                        <p>Задача. Чему вы учитесь в этой жизни.</p>
+                    </li>
+                    <li class="step">
+                        <span class="step-n">Сумма трёх</span>
+                        <p class="step-calc"><b data-k="abv">14+3+20</b><i>→</i><b data-k="G">10</b></p>
+                        <p>Опыт рода. Сценарий, который вы унаследовали.</p>
+                    </li>
+                    <li class="step step-core">
+                        <span class="step-n">Центр</span>
+                        <p class="step-calc"><b data-k="abvg">14+3+20+10</b><i>→</i><b data-k="D">11</b></p>
+                        <p>Суть. Энергия, на которую вы опираетесь всю жизнь.</p>
+                    </li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- 4. Зодиак -->
+        <section class="zodiac" id="zodiac" aria-labelledby="zodiacTitle">
+            <div class="wrap zodiac-grid">
+                <div>
+                    <p class="eyebrow">Зодиак</p>
+                    <h2 id="zodiacTitle" class="h2">Матрица показывает задачи. Знак — темперамент</h2>
+                    <p class="lead">Вместе они дают объёмный портрет: что вам дано, как вы это проявляете и куда расти. Знак определяем по тропическому зодиаку, по дате рождения.</p>
+                    <dl class="elements">
+                        <div><dt>Огонь</dt><dd>Овен · Лев · Стрелец</dd></div>
+                        <div><dt>Земля</dt><dd>Телец · Дева · Козерог</dd></div>
+                        <div><dt>Воздух</dt><dd>Близнецы · Весы · Водолей</dd></div>
+                        <div><dt>Вода</dt><dd>Рак · Скорпион · Рыбы</dd></div>
+                    </dl>
+                </div>
+                <div class="wheel-wrap">
+                    <svg id="wheel" viewBox="-160 -160 320 320" role="img" aria-label="Зодиакальный круг"></svg>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. Предложение -->
+        <section class="offer" id="offer" aria-labelledby="offerTitle">
+            <div class="wrap">
+                <p class="eyebrow">Разборы</p>
+                <h2 id="offerTitle" class="h2">Выберите глубину</h2>
+                <div class="plans">
+                    <article class="plan">
+                        <p class="plan-k">Мини-расшифровка</p>
+                        <p class="plan-price">0 ₸</p>
+                        <ul>
+                            <li>5 главных энергий и знак зодиака</li>
+                            <li>Действие на неделю по каждой</li>
+                            <li>Сразу на сайте</li>
+                        </ul>
+                        <a class="btn-line" href="#calc">Рассчитать</a>
+                    </article>
+                    <article class="plan plan-main">
+                        <p class="plan-k">Полный разбор</p>
+                        <p class="plan-price">14 900 ₸</p>
+                        <ul>
+                            <li>Все 32 позиции матрицы</li>
+                            <li>Деньги, отношения, предназначение</li>
+                            <li>PDF на 30+ страниц за 2 дня</li>
+                            <li>Ответы на 3 вопроса в Telegram</li>
+                        </ul>
+                        <a class="btn-sky" href="../dashboard.html#booking"><span>Заказать разбор</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+                    </article>
+                    <article class="plan">
+                        <p class="plan-k">Консультация</p>
+                        <p class="plan-price">29 900 ₸</p>
+                        <ul>
+                            <li>90 минут лично в Алматы или онлайн</li>
+                            <li>Разбор вашей ситуации по матрице</li>
+                            <li>План действий на 3 месяца</li>
+                        </ul>
+                        <a class="btn-line" href="../dashboard.html#booking">Записаться</a>
+                    </article>
+                </div>
+                <p class="fine">Разбор — инструмент самопознания. Он не заменяет консультацию врача, психолога, юриста или финансового специалиста.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="foot">
+        <div class="wrap foot-grid">
+            <p class="brand-txt">Матрица-Судьбы</p>
+            <nav aria-label="Документы">
+                <a href="../privacy.html">Политика конфиденциальности</a>
+                <a href="../terms.html">Соглашение и оферта</a>
+                <a href="../cookies.html">Cookie</a>
+            </nav>
+            <p class="fine">© 2026 · Алматы · Для лиц старше 18 лет. Нумерология и астрология не являются наукой, результат не гарантируется.</p>
+        </div>
+    </footer>
+
+    <script src="vendor/gsap.min.js"></script>
+    <script src="vendor/ScrollTrigger.min.js"></script>
+    <script src="vendor/SplitText.min.js"></script>
+    <script src="vendor/ScrambleTextPlugin.min.js"></script>
+    <script src="vendor/DrawSVGPlugin.min.js"></script>
+    <script src="vendor/lenis.min.js"></script>
+    <script type="module" src="js/sky.js"></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Политика cookie — Матрица-Судьбы</title>
+    <meta name="description" content="Какие cookie и данные браузера использует сайт «Матрица-Судьбы» и как ими управлять.">
+    <meta name="robots" content="index, follow">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="theme-color" content="#05060f">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="site.css?v=20261113">
+    <link rel="stylesheet" href="legal.css?v=20261113">
+</head>
+<body class="legal-page">
+    <header class="legal-top">
+        <span class="legal-brand">Матрица-Судьбы</span>
+        <a href="index.html">← На главную</a>
+    </header>
+
+    <main class="legal-wrap" id="main">
+        <h1>Политика cookie</h1>
+        <p class="legal-meta">Редакция от 13 ноября 2026 г.</p>
+
+        <h2>Что это</h2>
+        <p>Cookie — небольшие файлы, которые сайт сохраняет в браузере. Похожую роль играет локальное хранилище браузера (localStorage и sessionStorage). Ниже мы называем всё это «cookie».</p>
+
+        <h2>Что использует наш сайт</h2>
+        <div class="legal-table-wrap">
+            <table class="legal-table">
+                <thead>
+                    <tr><th>Название</th><th>Зачем</th><th>Срок</th><th>Тип</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>isLoggedIn, userName, userEmail, rememberMe</td><td>Помнить, что вы вошли в кабинет</td><td>До выхода</td><td>Необходимые</td></tr>
+                    <tr><td>atmo, motionLevel</td><td>Выбранная тема и интенсивность анимаций</td><td>Пока не очистите данные браузера</td><td>Функциональные</td></tr>
+                    <tr><td>guestReviews</td><td>Отзывы, которые вы оставили на этом устройстве</td><td>Пока не очистите данные браузера</td><td>Функциональные</td></tr>
+                    <tr><td>aiSid (sessionStorage)</td><td>Идентификатор диалога с ИИ-консультантом</td><td>До закрытия вкладки</td><td>Необходимые</td></tr>
+                    <tr><td>cookieConsent.v1</td><td>Запомнить, что вы прочитали это уведомление</td><td>Пока не очистите данные браузера</td><td>Необходимые</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h2>Чего на сайте нет</h2>
+        <ul>
+            <li>рекламных cookie и пикселей;</li>
+            <li>сторонней аналитики (Google Analytics, Яндекс.Метрика и т. п.);</li>
+            <li>отслеживания вас между сайтами.</li>
+        </ul>
+        <p>Если мы подключим аналитику, она будет включаться только после вашего согласия, а эта страница будет обновлена.</p>
+
+        <h2>Сторонние запросы</h2>
+        <p>Шрифты загружаются с серверов Google Fonts, поэтому ваш браузер обращается к Google и передаёт ему IP-адрес. Cookie для отслеживания при этом мы не устанавливаем.</p>
+
+        <h2>Как управлять</h2>
+        <p>Вы можете удалить cookie и данные сайта в настройках браузера — тогда выход из кабинета произойдёт автоматически, а настройки оформления сбросятся. Блокировка необходимых cookie может нарушить работу входа и записи.</p>
+        <p><button type="button" class="cookie-btn" onclick="openCookieSettings()">Показать уведомление о cookie ещё раз</button></p>
+
+        <h2>Контакты</h2>
+        <p>Вопросы — на <a href="mailto:hello@matrica-sudby.kz">hello@matrica-sudby.kz</a>. Подробнее об обработке данных — в <a href="privacy.html">политике конфиденциальности</a>.</p>
+    </main>
+
+    <footer class="legal-foot">
+        <nav aria-label="Юридические документы">
+            <a href="privacy.html">Политика конфиденциальности</a>
+            <a href="terms.html">Пользовательское соглашение и оферта</a>
+            <a href="cookies.html">Политика cookie</a>
+            <a href="index.html">Главная</a>
+        </nav>
+    </footer>
+    <script src="consent.js"></script>
+</body>
+</html>

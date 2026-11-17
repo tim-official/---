@@ -184,7 +184,14 @@ async def confirm_buy(call: CallbackQuery):
 @router.callback_query(F.data.startswith("tgpay:"))
 async def tgpay(call: CallbackQuery, bot: Bot):
     _, order_id, product_id = call.data.split(":")
-    p = db.get_product(int(product_id))
+    order = db.get_order(int(order_id))
+    if not order or order["tg_id"] != call.from_user.id:
+        await call.answer("Заказ не найден", show_alert=True)
+        return
+    if order["status"] != "pending":
+        await call.answer("Этот заказ уже обрабатывается", show_alert=True)
+        return
+    p = db.get_product(order["product_id"])
     if not p or not PAYMENT_PROVIDER_TOKEN:
         await call.answer("Оплата картой временно недоступна", show_alert=True)
         return
@@ -196,21 +203,43 @@ async def tgpay(call: CallbackQuery, bot: Bot):
         payload=f"order:{order_id}",
         provider_token=PAYMENT_PROVIDER_TOKEN,
         currency="KZT",
-        prices=[LabeledPrice(label=p["title"], amount=p["price"])],
+        prices=[LabeledPrice(label=p["title"], amount=order["amount"])],
         start_parameter=f"order_{order_id}",
     )
     await call.answer()
 
 
+def _order_from_payload(payload: str):
+    try:
+        prefix, raw_id = (payload or "").split(":", 1)
+        if prefix != "order":
+            return None
+        return db.get_order(int(raw_id))
+    except (ValueError, TypeError):
+        return None
+
+
 @router.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
+    order = _order_from_payload(query.invoice_payload)
+    if (
+        not order
+        or order["tg_id"] != query.from_user.id
+        or order["status"] != "pending"
+        or int(order["amount"]) != int(query.total_amount)
+        or (query.currency or "").upper() != "KZT"
+    ):
+        await query.answer(ok=False, error_message="Заказ недействителен. Оформите покупку заново.")
+        return
     await query.answer(ok=True)
 
 
 @router.message(F.content_type == ContentType.SUCCESSFUL_PAYMENT)
 async def successful_payment(msg: Message, bot: Bot):
-    payload = msg.successful_payment.invoice_payload  # "order:123"
-    order_id = int(payload.split(":")[1])
+    order = _order_from_payload(msg.successful_payment.invoice_payload)  # "order:123"
+    if not order or order["tg_id"] != msg.from_user.id:
+        return
+    order_id = order["id"]
     charge_id = msg.successful_payment.provider_payment_charge_id
     db.mark_order_paid(order_id, charge_id)
     await deliver_product(msg.from_user.id, order_id, bot)
@@ -220,8 +249,12 @@ async def successful_payment(msg: Message, bot: Bot):
 @router.callback_query(F.data.startswith("kaspi:"))
 async def kaspi_pay(call: CallbackQuery):
     _, order_id, product_id = call.data.split(":")
-    p = db.get_product(int(product_id))
-    amount = p["price"] // 100 if p else "—"
+    order = db.get_order(int(order_id))
+    if not order or order["tg_id"] != call.from_user.id:
+        await call.answer("Заказ не найден", show_alert=True)
+        return
+    p = db.get_product(order["product_id"])
+    amount = order["amount"] // 100 if p else "—"
 
     text = (
         f"🟡 *Оплата через Kaspi*\n\n"
@@ -242,15 +275,17 @@ async def kaspi_pay(call: CallbackQuery):
 async def kaspi_confirm(call: CallbackQuery):
     order_id = int(call.data.split(":")[1])
     order = db.get_order(order_id)
-    if not order:
+    if not order or order["tg_id"] != call.from_user.id:
         await call.answer("Заказ не найден", show_alert=True)
         return
+    if order["status"] != "pending":
+        await call.answer("Заявка по этому заказу уже отправлена", show_alert=True)
+        return
 
-    db.mark_order_paid(order_id, "kaspi_manual")
+    db.mark_order_pending_review(order_id)
     await call.message.answer(
-        "✅ *Оплата получена!*\n\n"
-        "Ваш продукт уже готовится к выдаче.\n"
-        "Администратор подтвердит и пришлёт материалы в течение нескольких минут.\n\n"
+        "✅ *Заявка на проверку оплаты отправлена!*\n\n"
+        "Администратор проверит поступление платежа и пришлёт материалы.\n\n"
         "Если что-то пошло не так — напишите /help",
         parse_mode="Markdown",
     )
@@ -258,8 +293,8 @@ async def kaspi_confirm(call: CallbackQuery):
     if ADMIN_TG_ID:
         await call.bot.send_message(
             ADMIN_TG_ID,
-            f"💰 *Новая оплата (Kaspi)!*\n\n"
-            f"Заказ #{order_id}\n"
+            f"💰 *Клиент сообщил об оплате (Kaspi) — проверьте поступление!*\n\n"
+            f"Заказ #{order_id}, сумма: {fmt_price(order['amount'])}\n"
             f"Пользователь: {call.from_user.full_name} (@{call.from_user.username})\n"
             f"ID: `{call.from_user.id}`\n\n"
             f"Нажмите чтобы выдать продукт: /deliver_{order_id}",
@@ -342,7 +377,7 @@ async def cmd_myorders(msg: Message):
         return
     lines = ["📋 *Мои покупки:*\n"]
     for o in orders:
-        status_icon = {"pending": "⏳", "paid": "💳", "delivered": "✅"}.get(o["status"], "❓")
+        status_icon = {"pending": "⏳", "pending_review": "🔎", "paid": "💳", "delivered": "✅"}.get(o["status"], "❓")
         lines.append(f"{status_icon} *{o['title']}* — {fmt_price(o['amount'])}")
     await msg.answer("\n".join(lines), parse_mode="Markdown")
 

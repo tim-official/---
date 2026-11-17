@@ -1,0 +1,1164 @@
+/* ==========================================================================
+   THEME 2026 — ПУБЛИЧНЫЙ САЙТ
+   Согласует стиль сайта с кабинетом: графит, приглушённое золото,
+   никакого «сияния», сдержанные премиальные переходы.
+   ========================================================================== */
+
+:root {
+    --bg:        #0A0B0E;
+    --bg2:       #0E1014;
+    --bg3:       #14171D;
+    --card:      #14171D;
+    --card2:     #191D25;
+
+    --surface-1: #14171D;
+    --surface-2: #191D25;
+    --surface-3: #1F242E;
+
+    --br:        rgba(255, 255, 255, 0.07);
+    --br-h:      rgba(255, 255, 255, 0.16);
+    --br-g:      rgba(200, 169, 106, 0.30);
+
+    --accent:    #C8A96A;
+    --accent-l:  #E0C88C;
+    --accent-d:  #9C8248;
+
+    --purple:    #C8A96A;
+    --purple-l:  #E0C88C;
+    --gold:      #C8A96A;
+    --gold-l:    #E0C88C;
+
+    --t1:        #F2F4F8;
+    --t2:        #A3ADBD;
+    --t3:        #6C7686;
+
+    --shadow:    0 20px 48px -18px rgba(0, 0, 0, 0.72);
+    --shadow-sm: 0 8px 20px -10px rgba(0, 0, 0, 0.60);
+    --glow-p:    none;
+    --glow-g:    none;
+
+    --e-out:     cubic-bezier(0.16, 1, 0.3, 1);
+    --e-spring:  cubic-bezier(0.34, 1.4, 0.64, 1);
+    --d-fast:    0.18s;
+    --d-base:    0.28s;
+    --d-slow:    0.5s;
+    --ease:      cubic-bezier(0.16, 1, 0.3, 1);
+    --tr:        all var(--d-base) var(--e-out);
+}
+
+/* --------------------------------------------------------------------------
+   Убираем сияние
+   -------------------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+    text-shadow: none !important;
+}
+
+html body {
+    background: var(--bg) !important;
+    background-image:
+        radial-gradient(ellipse 80% 45% at 50% -8%, rgba(255, 255, 255, 0.022) 0%, transparent 62%),
+        linear-gradient(180deg, #0A0B0E 0%, #0B0D11 100%) !important;
+    background-attachment: fixed !important;
+    color: var(--t2);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+html body::before,
+html body::after {
+    opacity: 0.04 !important;
+    filter: none !important;
+    animation: none !important;
+}
+
+::selection {
+    background: rgba(200, 169, 106, 0.26);
+    color: var(--t1);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.10);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.20);
+    background-clip: padding-box;
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* --------------------------------------------------------------------------
+   Шапка и навигация
+   -------------------------------------------------------------------------- */
+html body header,
+html body .header,
+html body .site-header,
+html body nav.navbar {
+    background: rgba(10, 11, 14, 0.82) !important;
+    background-image: none !important;
+    backdrop-filter: saturate(150%) blur(14px) !important;
+    -webkit-backdrop-filter: saturate(150%) blur(14px) !important;
+    border-bottom: 1px solid var(--br) !important;
+    box-shadow: none !important;
+}
+
+html body .nav-links,
+html body .nav-menu {
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    box-shadow: none !important;
+}
+
+html body .nav-links a,
+html body .nav-menu a {
+    position: relative;
+    color: var(--t2) !important;
+    letter-spacing: 0.06em;
+    transition:
+        color var(--d-fast) var(--e-out),
+        background var(--d-fast) var(--e-out);
+}
+
+html body .nav-links a:hover,
+html body .nav-menu a:hover {
+    color: var(--t1) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+html body .nav-links a.active,
+html body .nav-menu a.active {
+    background: var(--surface-3) !important;
+    background-image: none !important;
+    border-color: var(--br-h) !important;
+    color: var(--accent-l) !important;
+    box-shadow: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Кнопки
+   -------------------------------------------------------------------------- */
+html body .btn,
+html body .button,
+html body a.btn {
+    position: relative;
+    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    font-weight: 570;
+    letter-spacing: -0.006em;
+    border-radius: 10px;
+    box-shadow: none !important;
+    animation: none !important;
+    transition:
+        transform var(--d-fast) var(--e-out),
+        background var(--d-fast) var(--e-out),
+        border-color var(--d-fast) var(--e-out),
+        box-shadow var(--d-fast) var(--e-out) !important;
+}
+
+html body .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-110%);
+    background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.14) 50%, transparent 100%);
+    transition: transform var(--d-slow) var(--e-out);
+    pointer-events: none;
+}
+
+html body .btn:hover::before {
+    transform: translateX(110%);
+}
+
+html body .btn:hover {
+    transform: translateY(-1.5px);
+    box-shadow: var(--shadow-sm) !important;
+}
+
+html body .btn:active {
+    transform: translateY(0) scale(0.985);
+}
+
+html body .btn.btn-primary,
+html body .btn.btn-gold,
+html body .btn-primary,
+html body .btn-gold,
+html body .cta-btn,
+html body .hero-btn-primary {
+    background: linear-gradient(160deg, var(--accent-l), var(--accent)) !important;
+    background-image: linear-gradient(160deg, var(--accent-l), var(--accent)) !important;
+    background-size: auto !important;
+    border: 1px solid transparent !important;
+    color: #191408 !important;
+    font-weight: 620 !important;
+}
+
+html body .btn.btn-primary:hover,
+html body .btn.btn-gold:hover,
+html body .btn-primary:hover,
+html body .btn-gold:hover,
+html body .cta-btn:hover {
+    background-image: linear-gradient(160deg, #EDD69C, var(--accent-l)) !important;
+}
+
+html body .btn.btn-outline,
+html body .btn-outline,
+html body .btn-ghost,
+html body .btn-secondary {
+    background: transparent !important;
+    background-image: none !important;
+    border: 1px solid var(--br-h) !important;
+    color: var(--t2) !important;
+}
+
+html body .btn.btn-outline:hover,
+html body .btn-outline:hover,
+html body .btn-ghost:hover,
+html body .btn-secondary:hover {
+    background: var(--surface-2) !important;
+    color: var(--t1) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Секции и карточки
+   -------------------------------------------------------------------------- */
+html body .card,
+html body .service-card,
+html body .feature-card,
+html body .pricing-card,
+html body .review-card,
+html body .testimonial-card,
+html body .stat-card,
+html body .info-card,
+html body .step-card,
+html body .faq-item,
+html body .contact-card {
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-sm) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    animation: none !important;
+    transition:
+        transform var(--d-base) var(--e-out),
+        border-color var(--d-base) var(--e-out),
+        box-shadow var(--d-base) var(--e-out),
+        background var(--d-base) var(--e-out) !important;
+}
+
+html body .card::before,
+html body .card::after,
+html body .service-card::before,
+html body .service-card::after,
+html body .feature-card::before,
+html body .feature-card::after,
+html body .pricing-card::before,
+html body .pricing-card::after,
+html body .review-card::before,
+html body .review-card::after,
+html body .stat-card::before,
+html body .stat-card::after {
+    display: none !important;
+    content: none !important;
+}
+
+html body .card:hover,
+html body .service-card:hover,
+html body .feature-card:hover,
+html body .pricing-card:hover,
+html body .review-card:hover,
+html body .stat-card:hover,
+html body .step-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--br-h) !important;
+    background: var(--surface-2) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Типографика
+   -------------------------------------------------------------------------- */
+html body h1,
+html body h2,
+html body h3,
+html body h4 {
+    color: var(--t1);
+    filter: none !important;
+    animation: none !important;
+}
+
+html body .hero-title,
+html body .section-title,
+html body .gold-text,
+html body .grad-text {
+    filter: none !important;
+    animation: none !important;
+}
+
+html body .section-label,
+html body .hero-label,
+html body .badge-label {
+    color: var(--t3) !important;
+    letter-spacing: 0.15em;
+    animation: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Формы
+   -------------------------------------------------------------------------- */
+html body input[type="text"],
+html body input[type="email"],
+html body input[type="tel"],
+html body input[type="date"],
+html body input[type="password"],
+html body input[type="number"],
+html body select,
+html body textarea {
+    background: var(--bg2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 10px !important;
+    color: var(--t1) !important;
+    box-shadow: none !important;
+    font-family: 'Inter', sans-serif !important;
+    transition:
+        border-color var(--d-fast) var(--e-out),
+        background var(--d-fast) var(--e-out),
+        box-shadow var(--d-fast) var(--e-out) !important;
+}
+
+html body input:focus,
+html body select:focus,
+html body textarea:focus {
+    outline: none;
+    border-color: var(--accent) !important;
+    background: var(--surface-2) !important;
+    box-shadow: 0 0 0 3px rgba(200, 169, 106, 0.13) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Виджет ИИ-чата
+   -------------------------------------------------------------------------- */
+html body #aiChatBox,
+html body #aiChatWidget .ai-chat-box {
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow) !important;
+}
+
+html body #aiChatToggle,
+html body .ai-chat-toggle {
+    box-shadow: var(--shadow-sm) !important;
+    animation: none !important;
+    transition: transform var(--d-base) var(--e-spring), box-shadow var(--d-base) var(--e-out) !important;
+}
+
+html body #aiChatToggle:hover,
+html body .ai-chat-toggle:hover {
+    transform: scale(1.06);
+}
+
+html body .ai-msg-bot span {
+    background: var(--surface-2) !important;
+    border: 1px solid var(--br) !important;
+    color: var(--t2) !important;
+    box-shadow: none !important;
+}
+
+html body .ai-msg-user span {
+    background: linear-gradient(160deg, var(--accent-l), var(--accent)) !important;
+    color: #191408 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Появление при прокрутке
+   -------------------------------------------------------------------------- */
+[data-reveal] {
+    opacity: 0;
+    transform: translateY(24px);
+    transition:
+        opacity 0.75s var(--e-out),
+        transform 0.75s var(--e-out);
+    will-change: opacity, transform;
+}
+
+[data-reveal].is-visible {
+    opacity: 1;
+    transform: none;
+}
+
+.ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    transform: scale(0);
+    animation: rippleOut 0.62s var(--e-out) forwards;
+    pointer-events: none;
+}
+
+@keyframes rippleOut {
+    to {
+        transform: scale(2.6);
+        opacity: 0;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   Доступность
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    [data-reveal] {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* --- Кнопка входа в кабинет --- */
+html body .login-btn {
+    background: linear-gradient(160deg, var(--accent-l), var(--accent)) !important;
+    background-image: linear-gradient(160deg, var(--accent-l), var(--accent)) !important;
+    background-size: auto !important;
+    border: 1px solid transparent !important;
+    border-radius: 999px !important;
+    color: #191408 !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 620 !important;
+    letter-spacing: 0.04em !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transition: transform var(--d-fast) var(--e-out), background var(--d-fast) var(--e-out), box-shadow var(--d-fast) var(--e-out) !important;
+}
+
+html body .login-btn::before,
+html body .login-btn::after {
+    display: none !important;
+    content: none !important;
+}
+
+html body .login-btn:hover {
+    background-image: linear-gradient(160deg, #EDD69C, var(--accent-l)) !important;
+    transform: translateY(-1.5px);
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* --- Секции: спокойный фон без цветных туманностей --- */
+html body .hero,
+html body section,
+html body .section {
+    background-image: none !important;
+}
+
+html body .hero::before,
+html body .hero::after,
+html body section::before,
+html body section::after {
+    opacity: 0.06 !important;
+    filter: none !important;
+    animation: none !important;
+}
+
+html body .hero-visual::before,
+html body .hero-visual::after {
+    display: none !important;
+}
+
+/* --- Переключатель темы в шапке --- */
+html body .theme-switch,
+html body .theme-toggle,
+html body #themeToggle {
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    color: var(--t2) !important;
+    box-shadow: none !important;
+    animation: none !important;
+}
+
+html body .theme-switch:hover,
+html body .theme-toggle:hover,
+html body #themeToggle:hover {
+    background: var(--surface-3) !important;
+    border-color: var(--br-h) !important;
+    color: var(--t1) !important;
+}
+
+/* --- Логотип --- */
+html body .logo,
+html body .logo-text {
+    filter: none !important;
+    animation: none !important;
+}
+
+/* --- Чипы и теги --- */
+html body .hero-tag,
+html body .tag,
+html body .chip,
+html body .pill {
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    color: var(--t2) !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transition: var(--tr);
+}
+
+html body .hero-tag:hover,
+html body .tag:hover,
+html body .chip:hover,
+html body .pill:hover {
+    border-color: var(--br-h) !important;
+    color: var(--t1) !important;
+    transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   СЛОЙ 2 — БИЗНЕС-ФОРМАТ ПУБЛИЧНОГО САЙТА
+   ========================================================================== */
+
+/* --- Типографика: Inter вместо декоративного serif --- */
+html body h1, html body h2, html body h3, html body h4, html body h5,
+html body .hero-title, html body .hero-title-sub, html body .section-title,
+html body .logo-text, html body .drawer-logo-text, html body .testimonial-text,
+html body .about-text h3, html body .faq-question, html body .guest-item-name,
+html body .feat-body h4, html body .footer-brand, html body .modal-header h2 {
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif !important;
+    letter-spacing: -0.028em !important;
+    text-shadow: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    background-image: none !important;
+    filter: none !important;
+}
+
+html body .hero-title {
+    font-size: clamp(34px, 5vw, 58px) !important;
+    font-weight: 680 !important;
+    line-height: 1.06 !important;
+    color: var(--t1) !important;
+    margin-bottom: 10px !important;
+}
+
+html body .hero-title-sub {
+    display: block !important;
+    font-size: clamp(20px, 2.4vw, 30px) !important;
+    font-weight: 480 !important;
+    line-height: 1.22 !important;
+    color: var(--t2) !important;
+    letter-spacing: -0.02em !important;
+    margin-top: 6px !important;
+}
+
+html body .hero-kicker,
+html body .section-label {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 10.5px !important;
+    font-weight: 620 !important;
+    letter-spacing: 0.16em !important;
+    text-transform: uppercase !important;
+    color: var(--t3) !important;
+    -webkit-text-fill-color: var(--t3) !important;
+    background: none !important;
+    text-shadow: none !important;
+}
+
+html body .hero-desc,
+html body .section-subtitle {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 15px !important;
+    line-height: 1.72 !important;
+    color: var(--t2) !important;
+    text-shadow: none !important;
+}
+
+html body .section-title {
+    font-size: clamp(26px, 3.2vw, 38px) !important;
+    font-weight: 660 !important;
+    color: var(--t1) !important;
+}
+
+/* --- Фоновые «мистические» слои: приглушить --- */
+html body .mystic-fog,
+html body .mystic-fog-a,
+html body .mystic-fog-b,
+html body .mystic-particle,
+html body .shooting-star,
+html body .hero-nebula-canvas,
+html body .nav-candle,
+html body .drawer-candles,
+html body .drawer-candle,
+html body .apf-glow {
+    display: none !important;
+    opacity: 0 !important;
+}
+
+html body .mystic-vignette {
+    opacity: 0.35 !important;
+    filter: none !important;
+}
+
+/* --- Навигация --- */
+html body .navbar {
+    background: rgba(10, 11, 14, 0.86) !important;
+    background-image: none !important;
+    backdrop-filter: blur(16px) saturate(1.1) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(1.1) !important;
+    border-bottom: 1px solid var(--br) !important;
+    box-shadow: none !important;
+}
+
+html body .navbar::before,
+html body .navbar::after {
+    display: none !important;
+    content: none !important;
+}
+
+html body .logo-text {
+    font-size: 17px !important;
+    font-weight: 660 !important;
+    color: var(--t1) !important;
+    letter-spacing: -0.02em !important;
+}
+
+html body .logo-subtitle,
+html body .drawer-logo-sub {
+    font-size: 9.5px !important;
+    font-weight: 560 !important;
+    letter-spacing: 0.18em !important;
+    text-transform: uppercase !important;
+    color: var(--t3) !important;
+    -webkit-text-fill-color: var(--t3) !important;
+    background: none !important;
+}
+
+html body .nav-links {
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    padding: 4px !important;
+    gap: 2px !important;
+}
+
+html body .nav-link {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 12.5px !important;
+    font-weight: 560 !important;
+    letter-spacing: 0.02em !important;
+    text-transform: none !important;
+    color: var(--t2) !important;
+    border-radius: 8px !important;
+    padding: 8px 14px !important;
+    text-shadow: none !important;
+    background: transparent !important;
+    transition: background var(--d-fast) var(--e-out), color var(--d-fast) var(--e-out) !important;
+}
+
+html body .nav-link::before,
+html body .nav-link::after {
+    display: none !important;
+    content: none !important;
+}
+
+html body .nav-link:hover {
+    background: var(--surface-2) !important;
+    color: var(--t1) !important;
+}
+
+html body .nav-link.active {
+    background: var(--surface-3) !important;
+    color: var(--accent-l) !important;
+}
+
+/* --- Кнопки --- */
+html body .btn-primary,
+html body .login-btn,
+html body .submit-btn,
+html body .login-submit,
+html body .drawer-cta {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 13.5px !important;
+    font-weight: 620 !important;
+    letter-spacing: -0.006em !important;
+    text-transform: none !important;
+    background: var(--accent) !important;
+    background-image: none !important;
+    background-color: var(--accent) !important;
+    border: 1px solid var(--accent-d) !important;
+    border-radius: 11px !important;
+    color: #14100A !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+    filter: none !important;
+    animation: none !important;
+    transition: transform var(--d-fast) var(--e-out), background-color var(--d-fast) var(--e-out), box-shadow var(--d-fast) var(--e-out) !important;
+}
+
+html body .btn-primary:hover,
+html body .login-btn:hover,
+html body .submit-btn:hover,
+html body .login-submit:hover,
+html body .drawer-cta:hover {
+    background-color: var(--accent-l) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+html body .btn-secondary {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 13.5px !important;
+    font-weight: 580 !important;
+    text-transform: none !important;
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br-h) !important;
+    border-radius: 11px !important;
+    color: var(--t1) !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+    transition: var(--tr) !important;
+}
+
+html body .btn-secondary:hover {
+    background: var(--surface-3) !important;
+    border-color: var(--accent-d) !important;
+    color: var(--accent-l) !important;
+    transform: translateY(-2px) !important;
+}
+
+html body .btn-primary::before, html body .btn-primary::after,
+html body .btn-secondary::before, html body .btn-secondary::after,
+html body .login-btn::before, html body .login-btn::after {
+    display: none !important;
+    content: none !important;
+}
+
+/* --- Чипы --- */
+html body .destiny-chip,
+html body .about-tag,
+html body .hero-trust-strip > * {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 11.5px !important;
+    font-weight: 560 !important;
+    letter-spacing: 0.01em !important;
+    text-transform: none !important;
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 999px !important;
+    color: var(--t2) !important;
+    padding: 7px 14px !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transition: var(--tr) !important;
+}
+
+html body .destiny-chip:hover,
+html body .about-tag:hover {
+    border-color: var(--br-h) !important;
+    color: var(--t1) !important;
+    transform: translateY(-1px);
+}
+
+/* --- Карточки контента --- */
+html body .about-feat-card,
+html body .testimonial-card,
+html body .faq-item,
+html body .guest-item,
+html body .nav-card,
+html body .guest-review-form,
+html body .about-photo-frame,
+html body .hero-content,
+html body .hero-matrix-viz {
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-sm) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transition: transform var(--d-base) var(--e-out), border-color var(--d-base) var(--e-out), box-shadow var(--d-base) var(--e-out) !important;
+}
+
+html body .about-feat-card::before, html body .about-feat-card::after,
+html body .testimonial-card::before, html body .testimonial-card::after,
+html body .faq-item::before, html body .faq-item::after,
+html body .hero-content::before, html body .hero-content::after,
+html body .apf-corner {
+    display: none !important;
+    content: none !important;
+}
+
+html body .about-feat-card:hover,
+html body .testimonial-card:hover,
+html body .guest-item:hover {
+    transform: translateY(-3px) !important;
+    border-color: var(--br-h) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+html body .feat-num {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 12px !important;
+    font-weight: 660 !important;
+    color: var(--accent) !important;
+    background: rgba(200, 169, 106, 0.10) !important;
+    background-image: none !important;
+    border: 1px solid rgba(200, 169, 106, 0.24) !important;
+    border-radius: 9px !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+}
+
+/* --- FAQ --- */
+html body .faq-question {
+    font-size: 15px !important;
+    font-weight: 580 !important;
+    color: var(--t1) !important;
+    letter-spacing: -0.012em !important;
+}
+
+html body .faq-answer-inner {
+    font-size: 14px !important;
+    line-height: 1.72 !important;
+    color: var(--t2) !important;
+}
+
+html body .faq-icon {
+    color: var(--accent) !important;
+    text-shadow: none !important;
+    transition: transform var(--d-base) var(--e-out) !important;
+}
+
+/* --- Отзывы --- */
+html body .testimonial-text {
+    font-size: 14.5px !important;
+    font-weight: 400 !important;
+    line-height: 1.74 !important;
+    font-style: normal !important;
+    color: var(--t2) !important;
+}
+
+html body .testimonial-stars,
+html body .guest-item-stars {
+    color: var(--accent) !important;
+    text-shadow: none !important;
+    filter: none !important;
+    letter-spacing: 1px !important;
+}
+
+html body .author-name,
+html body .guest-item-name {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    color: var(--t1) !important;
+}
+
+html body .author-service,
+html body .guest-item-head {
+    font-size: 11.5px !important;
+    color: var(--t3) !important;
+}
+
+html body .author-avatar {
+    background: var(--surface-3) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    color: var(--accent-l) !important;
+    box-shadow: none !important;
+}
+
+/* --- Формы --- */
+html body input[type="text"], html body input[type="email"],
+html body input[type="tel"], html body input[type="password"],
+html body input[type="date"], html body textarea, html body select {
+    font-family: 'Inter', sans-serif !important;
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 10px !important;
+    color: var(--t1) !important;
+    box-shadow: none !important;
+    transition: border-color var(--d-fast) var(--e-out), box-shadow var(--d-fast) var(--e-out) !important;
+}
+
+html body input:focus, html body textarea:focus, html body select:focus {
+    outline: none !important;
+    border-color: var(--accent-d) !important;
+    box-shadow: 0 0 0 3px rgba(200, 169, 106, 0.13) !important;
+}
+
+/* --- Модалки --- */
+html body .modal-content {
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 18px !important;
+    box-shadow: var(--shadow) !important;
+    backdrop-filter: none !important;
+}
+
+html body .modal {
+    background: rgba(5, 6, 8, 0.74) !important;
+    backdrop-filter: blur(6px) !important;
+    -webkit-backdrop-filter: blur(6px) !important;
+}
+
+/* --- Футер --- */
+html body .footer {
+    background: var(--bg2) !important;
+    background-image: none !important;
+    border-top: 1px solid var(--br) !important;
+    box-shadow: none !important;
+}
+
+html body .footer::before,
+html body .footer::after {
+    display: none !important;
+    content: none !important;
+}
+
+html body .social-link {
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 10px !important;
+    color: var(--t2) !important;
+    box-shadow: none !important;
+    transition: var(--tr) !important;
+}
+
+html body .social-link:hover {
+    background: var(--surface-3) !important;
+    border-color: var(--accent-d) !important;
+    color: var(--accent-l) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* --- Плавающие элементы --- */
+html body .fab-scroll-top,
+html body .atmo-btn,
+html body .motion-btn,
+html body .matrix-theme-btn,
+html body .nav-prefs-toggle {
+    background: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 10px !important;
+    color: var(--t2) !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    animation: none !important;
+    font-family: 'Inter', sans-serif !important;
+    transition: var(--tr) !important;
+}
+
+html body .matrix-theme-btn.active,
+html body .atmo-btn.active,
+html body .motion-btn.active {
+    background: var(--surface-3) !important;
+    border-color: var(--accent-d) !important;
+    color: var(--accent-l) !important;
+}
+
+/* --- Появление секций при скролле --- */
+html body .cosmic-reveal,
+html body [data-reveal] {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity 0.62s var(--e-out), transform 0.62s var(--e-out);
+    will-change: opacity, transform;
+}
+
+html body .cosmic-reveal.cosmic-inview,
+html body [data-reveal].is-visible {
+    opacity: 1;
+    transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html body .cosmic-reveal,
+    html body [data-reveal] {
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none !important;
+    }
+}
+
+/* --- Никакого прозрачного/градиентного текста --- */
+html body *:not(svg):not(svg *) {
+    -webkit-text-fill-color: currentColor !important;
+}
+
+html body .feat-num {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: 28px !important;
+    width: auto !important;
+    height: 26px !important;
+    padding: 0 9px !important;
+    color: var(--accent) !important;
+    -webkit-text-fill-color: var(--accent) !important;
+    font-variant-numeric: tabular-nums;
+}
+
+html body .author-avatar,
+html body .profile-avatar,
+html body .drawer-logo,
+html body .testimonial-card blockquote,
+html body .guest-item-text {
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif !important;
+}
+
+html body .author-avatar {
+    font-weight: 620 !important;
+    font-size: 13px !important;
+    border-radius: 10px !important;
+}
+
+/* --- Секция контактов --- */
+html body .contact {
+    text-align: center !important;
+}
+
+html body .contact .section-title,
+html body .contact .section-subtitle,
+html body .contact .section-label {
+    text-align: center !important;
+}
+
+html body .contact-layout {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)) !important;
+    gap: 16px !important;
+    margin: 34px auto 0 !important;
+    max-width: 1080px !important;
+    text-align: left !important;
+}
+
+html body .contact-card {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 5px !important;
+    background: var(--surface-1) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow-sm) !important;
+    padding: 20px !important;
+    text-decoration: none !important;
+    transition: transform var(--d-base) var(--e-out), border-color var(--d-base) var(--e-out), box-shadow var(--d-base) var(--e-out) !important;
+}
+
+html body a.contact-card:hover {
+    transform: translateY(-3px) !important;
+    border-color: var(--br-h) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+html body .contact-card-label {
+    font-size: 10.5px !important;
+    font-weight: 620 !important;
+    letter-spacing: 0.14em !important;
+    text-transform: uppercase !important;
+    color: var(--t3) !important;
+}
+
+html body .contact-card-value {
+    font-size: 16px !important;
+    font-weight: 620 !important;
+    letter-spacing: -0.02em !important;
+    color: var(--t1) !important;
+}
+
+html body .contact-card-note {
+    font-size: 12.5px !important;
+    line-height: 1.6 !important;
+    color: var(--t3) !important;
+}
+
+html body .contact-actions {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 12px !important;
+    margin-top: 28px !important;
+}
+
+html body .contact-actions button {
+    padding: 13px 24px !important;
+    cursor: pointer;
+}
+
+/* --- Поля внутри form-group перебиваем точнее --- */
+html body .form-group input,
+html body .form-group select,
+html body .form-group textarea,
+html body .guest-review-form input,
+html body .guest-review-form select,
+html body .guest-review-form textarea,
+html body .login-form input,
+html body .registration-form input {
+    background: var(--surface-2) !important;
+    background-color: var(--surface-2) !important;
+    background-image: none !important;
+    border: 1px solid var(--br) !important;
+    border-radius: 10px !important;
+    color: var(--t1) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+
+html body .form-group input:focus,
+html body .form-group select:focus,
+html body .form-group textarea:focus,
+html body .guest-review-form input:focus,
+html body .guest-review-form select:focus,
+html body .guest-review-form textarea:focus {
+    border-color: var(--accent-d) !important;
+    box-shadow: 0 0 0 3px rgba(200, 169, 106, 0.13) !important;
+}
+
+html body .form-group label,
+html body .guest-review-form label {
+    font-size: 10.5px !important;
+    font-weight: 620 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+    color: var(--t3) !important;
+}

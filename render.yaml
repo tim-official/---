@@ -11,7 +11,7 @@ services:
       - key: APP_SECRET_KEY
         generateValue: true
       - key: PAYMENT_VERIFY_MODE
-        value: mock
+        value: strict
       - key: TRAINING_PRICE_KZT
         value: "75000"
       - key: OPENAI_MODEL

@@ -45,7 +45,7 @@ def init_db():
                 product_id      INTEGER NOT NULL,
                 amount          INTEGER NOT NULL,
                 currency        TEXT DEFAULT 'KZT',
-                status          TEXT DEFAULT 'pending',  -- pending / paid / delivered
+                status          TEXT DEFAULT 'pending',  -- pending / pending_review / paid / delivered
                 payment_method  TEXT,
                 provider_charge_id TEXT,
                 created_at      TEXT DEFAULT (datetime('now')),
@@ -204,6 +204,14 @@ def mark_order_paid(order_id: int, charge_id: str = ""):
         conn.execute(
             "UPDATE orders SET status='paid', paid_at=datetime('now'), provider_charge_id=? WHERE id=?",
             (charge_id, order_id),
+        )
+
+
+def mark_order_pending_review(order_id: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE orders SET status='pending_review', payment_method='kaspi' WHERE id=? AND status='pending'",
+            (order_id,),
         )
 
 

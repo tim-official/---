@@ -3,3 +3,8 @@ backend/__pycache__/
 *.pyc
 backend/.env.bot
 backend/site.db
+backend/.env
+.env
+*.db
+.tools/
+.taste-skill/
