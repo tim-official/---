@@ -1360,6 +1360,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Сохраняем ключ записи на этом устройстве: без него запись нельзя посмотреть или отменить в кабинете.
+            if (data && data.booking && Number.isInteger(data.booking.id) && typeof data.booking.token === 'string') {
+                try {
+                    const key = 'myBookings.v1';
+                    const list = JSON.parse(localStorage.getItem(key) || '[]');
+                    const next = (Array.isArray(list) ? list : []).filter(x => x && x.id !== data.booking.id);
+                    next.unshift({ id: data.booking.id, token: data.booking.token });
+                    localStorage.setItem(key, JSON.stringify(next.slice(0, 50)));
+                } catch { /* хранилище недоступно */ }
+            }
             addAdminRecord('bookings', {
                 name: payload.name || 'Не указано',
                 email: payload.email || 'Не указано',

@@ -1,6 +1,8 @@
 import os
 import re
 import secrets
+import hashlib
+import hmac
 import sqlite3
 import logging
 from collections import Counter, defaultdict
@@ -193,7 +195,19 @@ def init_db():
         conn.commit()
         ensure_column(conn, "bookings", "status", "TEXT NOT NULL DEFAULT 'confirmed'")
         ensure_column(conn, "bookings", "cancelled_at", "TEXT")
+        # Секретный ключ управления записью (храним только хэш). Без него запись нельзя ни посмотреть, ни отменить.
+        ensure_column(conn, "bookings", "manage_token_hash", "TEXT")
         conn.commit()
+
+
+def hash_manage_token(token: str) -> str:
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def manage_token_ok(token: str, stored_hash) -> bool:
+    if not token or not stored_hash or len(token) > 128:
+        return False
+    return hmac.compare_digest(hash_manage_token(token), stored_hash)
 
 
 def cleanup_admin_sessions():
@@ -410,17 +424,16 @@ def handle_preflight():
 @limiter.limit("20 per hour")
 def cancel_booking(booking_id):
     payload   = request.get_json(silent=True) or {}
-    email     = (payload.get("email") or "").strip().lower()
+    token     = str(payload.get("token") or "")
     now       = datetime.now().isoformat()
 
     with closing(get_conn()) as conn:
         row = conn.execute(
-            "SELECT id, email, booking_at, service FROM bookings WHERE id = ?", (booking_id,)
+            "SELECT id, email, booking_at, service, manage_token_hash FROM bookings WHERE id = ?", (booking_id,)
         ).fetchone()
-        if not row:
-            return jsonify({"ok": False, "message": "Запись не найдена"}), 404
-        if email and row["email"].lower() != email:
-            return jsonify({"ok": False, "message": "Нет доступа"}), 403
+        # Одинаковый ответ для «нет записи» и «нет доступа», чтобы нельзя было перебором узнать, какие записи существуют.
+        if not row or not manage_token_ok(token, row["manage_token_hash"]):
+            return jsonify({"ok": False, "message": "Запись не найдена или нет доступа. Для отмены свяжитесь с нами."}), 403
         conn.execute(
             "UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ?",
             (now, booking_id)
@@ -1102,24 +1115,44 @@ def confirm_purchase():
 
 @app.route("/api/bookings", methods=["GET"])
 @limiter.limit("60 per minute")
+def get_user_bookings_legacy():
+    """Старый поиск записей по email отключён: любой, кто знал чужой email, видел его записи."""
+    return jsonify({"ok": False, "message": "Метод отключён. Используйте POST /api/bookings/mine с ключами записей."}), 410
+
+
+@app.route("/api/bookings/mine", methods=["POST"])
+@limiter.limit("60 per minute")
 def get_user_bookings():
-    """Возвращает предстоящие и прошедшие записи пользователя по email."""
-    email = (request.args.get("email") or "").strip().lower()
-    if not email or not validate_email(email):
-        return jsonify({"ok": False, "message": "Укажите корректный email"}), 400
+    """Возвращает записи, для которых клиент предъявил секретный ключ (выдаётся при создании записи)."""
+    payload = request.get_json(silent=True) or {}
+    items = payload.get("items") or []
+    if not isinstance(items, list):
+        return jsonify({"ok": False, "message": "Некорректный запрос"}), 400
+    pairs = {}
+    for it in items[:50]:
+        if not isinstance(it, dict):
+            continue
+        try:
+            bid = int(it.get("id"))
+        except (TypeError, ValueError):
+            continue
+        pairs[bid] = str(it.get("token") or "")
 
     now = datetime.now()
-    with closing(get_conn()) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, name, service, format, booking_at, created_at
-            FROM bookings
-            WHERE LOWER(email) = ?
-            ORDER BY booking_at DESC
-            LIMIT 50
-            """,
-            (email,),
-        ).fetchall()
+    rows = []
+    if pairs:
+        placeholders = ",".join("?" * len(pairs))
+        with closing(get_conn()) as conn:
+            found = conn.execute(
+                f"""
+                SELECT id, name, service, format, booking_at, created_at, status, manage_token_hash
+                FROM bookings
+                WHERE id IN ({placeholders})
+                ORDER BY booking_at DESC
+                """,
+                tuple(pairs.keys()),
+            ).fetchall()
+        rows = [r for r in found if manage_token_ok(pairs.get(r["id"], ""), r["manage_token_hash"])]
 
     upcoming = []
     past = []
@@ -1133,6 +1166,7 @@ def get_user_bookings():
             "format": row["format"] or "",
             "booking_at": booking_at.strftime("%d.%m.%Y %H:%M"),
             "booking_iso": row["booking_at"],
+            "status": row["status"] or "confirmed",
         }
         if booking_at >= now:
             upcoming.append(item)
@@ -1348,13 +1382,14 @@ def create_booking():
                     }
                 ), 409
 
-        conn.execute(
+        manage_token = secrets.token_urlsafe(24)
+        cur = conn.execute(
             """
             INSERT INTO bookings (
                 name, email, phone, service, format, note, booking_at, created_at,
-                reminder_24h_sent, reminder_2h_sent
+                reminder_24h_sent, reminder_2h_sent, manage_token_hash
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
             """,
             (
                 name,
@@ -1365,8 +1400,10 @@ def create_booking():
                 note,
                 booking_at.isoformat(),
                 now.isoformat(),
+                hash_manage_token(manage_token),
             ),
         )
+        booking_id = cur.lastrowid
         conn.commit()
 
     msg = (
@@ -1381,7 +1418,9 @@ def create_booking():
     )
     notify = send_all_notifications("Новая запись на прием", msg)
 
-    return jsonify({"ok": True, "message": "Вы успешно записаны", "notifications": notify})
+    # Ключ отдаётся клиенту один раз; на сервере хранится только его хэш.
+    return jsonify({"ok": True, "message": "Вы успешно записаны", "notifications": notify,
+                    "booking": {"id": booking_id, "token": manage_token}})
 
 
 @app.route("/api/training/status", methods=["GET"])

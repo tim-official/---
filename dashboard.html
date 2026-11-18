@@ -1228,6 +1228,7 @@ async function submitBooking(e) {
             return;
         }
 
+        saveMyBooking(data.booking);
         addAdminRecord('bookings', { name, email, service, date, time, format, source: 'dashboard-booking-api' });
         showNotify('🗓 Запись создана! Уведомление отправлено на почту.', 'success');
         e.target.reset();
@@ -1537,12 +1538,15 @@ function sessionIcon(service) {
 function renderSessionItem(item, showStatus) {
     const fmt = item.format ? ' · ' + escapeHtml(item.format) : '';
     const bookingId = Number.isInteger(Number(item.id)) && Number(item.id) > 0 ? Number(item.id) : 0;
-    const cancelBtn = showStatus && bookingId
+    const cancelled = item.status === 'cancelled';
+    const cancelBtn = showStatus && bookingId && !cancelled
         ? `<button class="btn-cancel-session" onclick="cancelBooking(${bookingId}, this)" title="Отменить запись">✕ Отменить</button>`
         : '';
-    const status = showStatus
-        ? '<span class="session-status status-upcoming">Предстоит</span>'
-        : '<span class="session-status status-done">Завершён</span>';
+    const status = cancelled
+        ? '<span class="session-status status-done">Отменена</span>'
+        : showStatus
+            ? '<span class="session-status status-upcoming">Предстоит</span>'
+            : '<span class="session-status status-done">Завершён</span>';
     return `<div class="session-item" data-booking-id="${bookingId || ''}">
         <div class="session-left">
             <div class="session-icon">${sessionIcon(item.service)}</div>
@@ -1558,18 +1562,47 @@ function renderSessionItem(item, showStatus) {
     </div>`;
 }
 
+// Ключи записей, сделанных с этого устройства. Сервер выдаёт ключ один раз при создании записи
+// и без него не показывает и не отменяет запись (раньше хватало чужого email).
+const MY_BOOKINGS_KEY = 'myBookings.v1';
+function getMyBookings() {
+    try {
+        const list = JSON.parse(localStorage.getItem(MY_BOOKINGS_KEY) || '[]');
+        return Array.isArray(list) ? list.filter(x => x && Number.isInteger(x.id) && typeof x.token === 'string') : [];
+    } catch { return []; }
+}
+function saveMyBooking(booking) {
+    if (!booking || !Number.isInteger(booking.id) || typeof booking.token !== 'string') return;
+    try {
+        const list = getMyBookings().filter(x => x.id !== booking.id);
+        list.unshift({ id: booking.id, token: booking.token });
+        localStorage.setItem(MY_BOOKINGS_KEY, JSON.stringify(list.slice(0, 50)));
+    } catch { /* хранилище недоступно: запись создана, но управлять ею с сайта не получится */ }
+}
+async function fetchMyBookings(timeoutMs) {
+    const items = getMyBookings();
+    if (!items.length) return { ok: true, upcoming: [], past: [], empty: true };
+    const res = await fetch(API_BASE + '/api/bookings/mine', { signal: AbortSignal.timeout(timeoutMs),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error('Booking request failed');
+    return data;
+}
+
 async function cancelBooking(bookingId, btn) {
     if (!confirm('Отменить эту запись?')) return;
     const orig = btn.textContent;
     btn.disabled = true;
     btn.textContent = '...';
     try {
-        const userData = JSON.parse(localStorage.getItem('userData') || '{}');
-        const email = (userData.email || localStorage.getItem('userEmail') || '').trim();
+        const own = getMyBookings().find(x => x.id === Number(bookingId));
         const res = await fetch(API_BASE + '/api/bookings/' + bookingId + '/cancel', { signal: AbortSignal.timeout(30000),
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
+            body: JSON.stringify({ token: own ? own.token : '' })
         });
         const data = await res.json();
         if (res.ok && data.ok) {
@@ -1593,26 +1626,25 @@ async function cancelBooking(bookingId, btn) {
 }
 
 async function loadSessions() {
-    const userData = JSON.parse(localStorage.getItem('userData') || '{}');
-    const email = (userData.email || localStorage.getItem('userEmail') || '').trim().toLowerCase();
-
     const upcomingEl = document.getElementById('sessionsUpcomingList');
     const pastEl     = document.getElementById('sessionsPastList');
     const notifyEl   = document.getElementById('sessionsNotify');
     const notifyTitle = document.getElementById('sessionsNotifyTitle');
     const notifyText  = document.getElementById('sessionsNotifyText');
 
-    if (!email) {
-        const msg = '<div class="empty" style="padding:20px;text-align:center;color:var(--t3)">Добавьте email в профиле для отображения сеансов</div>';
+    if (!getMyBookings().length) {
+        const msg = '<div class="empty" style="padding:20px;text-align:center;color:var(--t3)">Здесь появятся записи, сделанные с этого устройства</div>';
         if (upcomingEl) upcomingEl.innerHTML = msg;
         if (pastEl)     pastEl.innerHTML     = msg;
+        if (notifyEl)   notifyEl.style.display = 'none';
         return;
     }
 
     try {
-        const res  = await fetch(API_BASE + '/api/bookings?email=' + encodeURIComponent(email), { signal: AbortSignal.timeout(25000) });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
+        let data;
+        try {
+            data = await fetchMyBookings(25000);
+        } catch {
             const err = '<div class="empty" style="padding:20px;text-align:center;color:var(--t3)">Не удалось загрузить данные</div>';
             if (upcomingEl) upcomingEl.innerHTML = err;
             if (pastEl)     pastEl.innerHTML     = err;
@@ -1656,13 +1688,11 @@ async function loadSessions() {
 }
 
 async function loadOverviewSessions() {
-    const userData = JSON.parse(localStorage.getItem('userData') || '{}');
-    const email = (userData.email || localStorage.getItem('userEmail') || '').trim().toLowerCase();
     const upEl  = document.getElementById('overviewUpcomingList');
     const pastEl = document.getElementById('overviewPastList');
 
-    if (!email) {
-        const msg = '<div class="empty" style="padding:16px;text-align:center;color:var(--t3);font-size:13px">Добавьте email в профиле</div>';
+    if (!getMyBookings().length) {
+        const msg = '<div class="empty" style="padding:16px;text-align:center;color:var(--t3);font-size:13px">Записей с этого устройства пока нет</div>';
         if (upEl)   upEl.innerHTML   = msg;
         if (pastEl) pastEl.innerHTML = msg;
         const kpiEl = document.getElementById('overviewSessionsCount');
@@ -1675,9 +1705,7 @@ async function loadOverviewSessions() {
     }
 
     try {
-        const res  = await fetch(API_BASE + '/api/bookings?email=' + encodeURIComponent(email), { signal: AbortSignal.timeout(25000) });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error('Booking request failed');
+        const data = await fetchMyBookings(25000);
 
         if (upEl) {
             upEl.innerHTML = data.upcoming.length
