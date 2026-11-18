@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ кабинет — Матрицы Судьбы</title>
+    <link rel="stylesheet" href="admin.css?v=20260721d">
+</head>
+<body>
+    <div class="wrap">
+        <header class="top" id="adminHeader">
+            <div style="display:flex;align-items:center;gap:14px">
+                <span style="font-size:24px">⚙️</span>
+                <div>
+                    <h1>Админ кабинет</h1>
+                    <div class="sub">Матрицы Судьбы · Управление сайтом</div>
+                </div>
+            </div>
+            <nav style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <a class="btn btn-nav" href="#analytics-section">📊 Аналитика</a>
+                <a class="btn btn-nav" href="#content-section">📝 Контент</a>
+                <a class="btn btn-nav" href="#participants-section">👥 Участники</a>
+                <a class="btn btn-nav" href="#messages-section">💬 Сообщения</a>
+                <a class="btn" href="index.html">← Сайт</a>
+                <button class="btn btn-danger-outline" onclick="clearAdminSession()">Выйти</button>
+            </nav>
+        </header>
+
+        <section class="panel">
+            <h2>Подключение API (без консоли)</h2>
+            <div class="api-inline">
+                <input id="apiBaseInput" type="url" placeholder="https://your-backend.onrender.com" />
+                <button class="btn btn-main" type="button" onclick="saveApiBase()">Сохранить API</button>
+                <button class="btn" type="button" onclick="testApiBase()">Проверить</button>
+                <button class="btn" type="button" onclick="openSiteWithApi()">Открыть сайт с API</button>
+            </div>
+            <div class="sub" id="apiStatus" style="margin-top:8px">Текущий API: не задан</div>
+        </section>
+
+        <section class="panel">
+            <h2>Автонапоминания</h2>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                <button class="btn" type="button" onclick="runRemindersNow()">Запустить проверку напоминаний</button>
+                <span class="sub" id="reminderStatus">Пока не запускалось</span>
+            </div>
+        </section>
+
+        <section class="kpis">
+            <article class="kpi"><div class="label">Участники обучения</div><div class="val loading-val" id="kpiLearners">—</div></article>
+            <article class="kpi"><div class="label">Лист ожидания</div><div class="val loading-val" id="kpiWaitlist">—</div></article>
+            <article class="kpi"><div class="label">Записи на прием</div><div class="val loading-val" id="kpiBookings">—</div></article>
+            <article class="kpi"><div class="label">Публикации</div><div class="val loading-val" id="kpiContent">—</div></article>
+            <article class="kpi"><div class="label">Сообщения</div><div class="val loading-val" id="kpiMessages">—</div></article>
+        </section>
+
+        <section class="panel analytics-shell" id="analytics-section">
+            <div class="panel-head">
+                <h2>Аналитика клиентов и дохода</h2>
+                <div class="analytics-actions">
+                    <select id="analyticsPreset" onchange="applyAnalyticsPreset()">
+                        <option value="30">30 дней</option>
+                        <option value="7">7 дней</option>
+                        <option value="90">90 дней</option>
+                        <option value="custom">Свой период</option>
+                    </select>
+                    <input id="analyticsStart" type="date">
+                    <input id="analyticsEnd" type="date">
+                    <button class="btn" type="button" onclick="refreshAnalytics()">Обновить аналитику</button>
+                    <button class="btn btn-main" type="button" onclick="exportAnalyticsCsv()">Экспорт CSV</button>
+                </div>
+            </div>
+
+            <div class="analytics-cards">
+                <article class="analytic-card">
+                    <div class="label">Доход за все время</div>
+                    <div class="money" id="anTotalRevenue">0 ₸</div>
+                    <div class="hint" id="anPaidPayments">0 оплат</div>
+                </article>
+                <article class="analytic-card">
+                    <div class="label">Доход за месяц</div>
+                    <div class="money" id="anMonthRevenue">0 ₸</div>
+                    <div class="hint" id="anGrowth">Рост 0%</div>
+                </article>
+                <article class="analytic-card">
+                    <div class="label">Клиенты</div>
+                    <div class="money" id="anTotalClients">0</div>
+                    <div class="hint" id="anNewClients30">Новых за 30 дней: 0</div>
+                </article>
+                <article class="analytic-card">
+                    <div class="label">Обучение</div>
+                    <div class="money" id="anAccepted">0</div>
+                    <div class="hint" id="anWaitlist">Лист ожидания: 0</div>
+                </article>
+            </div>
+
+            <div class="analytics-grid">
+                <div class="chart-box">
+                    <h3>Доход за 6 месяцев</h3>
+                    <div class="bar-chart" id="revenueChart"></div>
+                </div>
+                <div class="chart-box">
+                    <h3>Топ услуг</h3>
+                    <div id="topServicesList" class="service-list"></div>
+                </div>
+            </div>
+
+            <div class="chart-box">
+                <h3>Топ клиентов по активности</h3>
+                <div id="tblTopClients" class="table-wrap"></div>
+            </div>
+        </section>
+
+        <section class="panel" id="content-section">
+            <h2>Добавить новую публикацию</h2>
+            <form class="admin-form" id="contentForm" onsubmit="createContent(event)">
+                <div class="form-grid">
+                    <div>
+                        <label>Тип</label>
+                        <select id="contentKind" required>
+                            <option value="story">История</option>
+                            <option value="doc">Документация</option>
+                            <option value="photo">Фото</option>
+                            <option value="video">Видео</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Заголовок</label>
+                        <input id="contentTitle" type="text" placeholder="Название публикации" required>
+                    </div>
+                </div>
+                <label>Описание</label>
+                <textarea id="contentBody" rows="4" placeholder="Текст истории, документации или описания"></textarea>
+                <label>Ссылка на медиа (для фото/видео/документа)</label>
+                <input id="contentMediaUrl" type="url" placeholder="https://...">
+                <div id="contentFormError" style="color:#e05555;font-size:12.5px;margin-bottom:8px;min-height:16px"></div>
+                <button class="btn btn-main" type="submit" id="contentSubmitBtn">
+                    <span>➕ Добавить публикацию</span>
+                </button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h2>Публикации на сайте</h2>
+            <div id="tblContent" class="table-wrap"></div>
+        </section>
+
+        <section class="panel" id="participants-section">
+            <h2>Участники и записи</h2>
+            <div class="admin-search-bar">
+                <input type="search" id="adminSearchInput" class="admin-search-input" placeholder="🔍 Поиск по имени, email, услуге..." oninput="_debouncedFilter(this.value)">
+            </div>
+            <div class="double-grid">
+                <div>
+                    <h3>Участники обучения</h3>
+                    <div id="tblLearners" class="table-wrap"></div>
+                </div>
+                <div>
+                    <h3>Записи на прием</h3>
+                    <div id="tblBookings" class="table-wrap"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel" id="messages-section">
+            <h2>Отправить сообщение клиенту</h2>
+            <form class="admin-form" id="messageForm" onsubmit="sendMessage(event)">
+                <div class="form-grid">
+                    <div>
+                        <label>Email клиента</label>
+                        <input id="msgTo" type="email" placeholder="client@email.com" required>
+                    </div>
+                    <div>
+                        <label>Тема</label>
+                        <input id="msgSubject" type="text" placeholder="Тема сообщения">
+                    </div>
+                </div>
+                <label>Текст</label>
+                <textarea id="msgText" rows="4" placeholder="Сообщение клиенту" required></textarea>
+                <div id="messageFormError" style="color:#e05555;font-size:12.5px;margin-bottom:8px;min-height:16px"></div>
+                <button class="btn btn-main" type="submit" id="msgSubmitBtn">
+                    <span>✉️ Отправить клиенту</span>
+                </button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h2>Диалог с клиентами</h2>
+            <div id="tblMessages" class="table-wrap"></div>
+        </section>
+    </div>
+
+    <script>
+        // ── Toast уведомления для админки ──
+        function adminToast(msg, type = 'success') {
+            const icons = { success: '✅', error: '❌', warn: '⚠️', info: 'ℹ️' };
+            const colors = {
+                success: { bg: 'rgba(46,160,87,0.15)', border: 'rgba(46,160,87,0.4)', color: '#4fc36a' },
+                error:   { bg: 'rgba(220,53,69,0.15)', border: 'rgba(220,53,69,0.4)', color: '#e05555' },
+                warn:    { bg: 'rgba(255,193,7,0.15)',  border: 'rgba(255,193,7,0.4)',  color: '#f0b429' },
+                info:    { bg: 'rgba(13,202,240,0.12)', border: 'rgba(13,202,240,0.35)', color: '#5bc8e2' }
+            };
+            const c = colors[type] || colors.info;
+            let wrap = document.getElementById('_adminToasts');
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.id = '_adminToasts';
+                wrap.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99990;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+                document.body.appendChild(wrap);
+            }
+            const t = document.createElement('div');
+            t.style.cssText = `pointer-events:all;display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;font-size:13.5px;font-family:Inter,sans-serif;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,0.5);animation:_adminToastIn .25s ease;background:${c.bg};border:1px solid ${c.border};color:${c.color};position:relative;overflow:hidden`;
+            t.innerHTML = `<span style="font-size:16px">${icons[type]||'ℹ️'}</span><span style="flex:1">${msg}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;cursor:pointer;color:inherit;opacity:.6;font-size:14px;padding:0;margin-left:4px">✕</button><div style="position:absolute;bottom:0;left:0;height:2px;background:${c.border};animation:_adminToastBar 4s linear forwards"></div>`;
+            if (!document.getElementById('_adminToastStyle')) {
+                const s = document.createElement('style');
+                s.id = '_adminToastStyle';
+                s.textContent = '@keyframes _adminToastIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}@keyframes _adminToastBar{from{width:100%}to{width:0}}';
+                document.head.appendChild(s);
+            }
+            wrap.appendChild(t);
+            setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity .2s'; setTimeout(()=>t.remove(),220); }, 4000);
+        }
+
+        const API_BASE = (() => {
+            const params = new URLSearchParams(window.location.search);
+            const fromQuery = (params.get('api') || '').trim().replace(/\/$/, '');
+            if (/^https?:\/\//i.test(fromQuery)) {
+                localStorage.setItem('apiBaseUrl', fromQuery);
+                return fromQuery;
+            }
+            return (localStorage.getItem('apiBaseUrl') || 'http://127.0.0.1:5000').trim().replace(/\/$/, '');
+        })();
+        const ADMIN_ACCESS_CODE = '0000';
+
+        function currentApiBase() {
+            return (localStorage.getItem('apiBaseUrl') || 'http://127.0.0.1:5000').trim();
+        }
+
+        function updateApiStatus(text) {
+            const el = document.getElementById('apiStatus');
+            if (el) {
+                el.textContent = text;
+            }
+        }
+
+        function initApiControls() {
+            const input = document.getElementById('apiBaseInput');
+            if (!input) {
+                return;
+            }
+            const value = currentApiBase();
+            input.value = value;
+            updateApiStatus('Текущий API: ' + value);
+        }
+
+        function saveApiBase() {
+            const input = document.getElementById('apiBaseInput');
+            if (!input) {
+                return;
+            }
+            const value = (input.value || '').trim().replace(/\/$/, '');
+            if (!/^https?:\/\//i.test(value)) {
+                adminToast('Укажите корректный URL', 'error'); return;
+            }
+            localStorage.setItem('apiBaseUrl', value);
+            updateApiStatus('Текущий API: ' + value);
+            adminToast('API сохранён ✓', 'success');
+        }
+
+        async function testApiBase() {
+            const input = document.getElementById('apiBaseInput');
+            const value = ((input && input.value) || currentApiBase()).trim().replace(/\/$/, '');
+            if (!/^https?:\/\//i.test(value)) {
+                adminToast('Укажите URL API', 'warn');
+                return;
+            }
+            try {
+                const response = await fetch(value + '/api/health');
+                const data = await response.json();
+                if (response.ok && data.ok) {
+                    updateApiStatus('API доступен: ' + value);
+                    adminToast('API доступен ✓', 'success');
+                } else {
+                    updateApiStatus('API ответил с ошибкой: ' + value);
+                    adminToast('API ответил с ошибкой', 'error');
+                }
+            } catch {
+                updateApiStatus('API недоступен: ' + value);
+                adminToast('Нет соединения с API', 'error');
+            }
+        }
+
+        async function runRemindersNow() {
+            const status = document.getElementById('reminderStatus');
+            try {
+                const response = await fetch(API_BASE + '/api/tasks/reminders/run', {
+                    method: 'POST',
+                    headers: authHeaders()
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.message || 'Не удалось запустить задачу напоминаний');
+                }
+                if (status) {
+                    status.textContent = 'Готово: 24ч=' + (data.sent24h || 0) + ', 2ч=' + (data.sent2h || 0);
+                }
+                adminToast('Напоминания отправлены ✓', 'success');
+            } catch (error) {
+                if (status) {
+                    status.textContent = 'Ошибка: ' + error.message;
+                }
+                adminToast('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        function openSiteWithApi() {
+            const input = document.getElementById('apiBaseInput');
+            const value = ((input && input.value) || currentApiBase()).trim().replace(/\/$/, '');
+            if (!/^https?:\/\//i.test(value)) {
+                adminToast('Укажите URL API', 'warn');
+                return;
+            }
+            localStorage.setItem('apiBaseUrl', value);
+            window.open('index.html?api=' + encodeURIComponent(value), '_blank');
+        }
+
+        function getAdminToken() {
+            return localStorage.getItem('adminToken') || '';
+        }
+
+        function isOfflineAdminSetup() {
+            return localStorage.getItem('adminOfflineAccess') === 'true';
+        }
+
+        function authHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'X-Admin-Token': getAdminToken()
+            };
+        }
+
+        async function checkAdmin() {
+            let token = getAdminToken();
+            if (token) {
+                localStorage.removeItem('adminOfflineAccess');
+                return true;
+            }
+            return await showAdminLoginModal();
+        }
+
+        function showAdminLoginModal() {
+            return new Promise((resolve) => {
+                const modal = document.createElement('div');
+                modal.id = 'adminLoginModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)';
+                modal.innerHTML = `
+                    <div style="background:var(--card,#1a1520);border:1px solid rgba(212,174,92,0.3);border-radius:16px;padding:40px;width:360px;max-width:95vw;box-shadow:0 24px 60px rgba(0,0,0,0.7)">
+                        <div style="text-align:center;margin-bottom:28px">
+                            <div style="font-size:32px;margin-bottom:12px">🔐</div>
+                            <h2 style="font-family:Cinzel,serif;color:#e8d090;font-size:20px;margin:0 0 6px">Вход в админ-панель</h2>
+                            <p style="color:#888;font-size:13px;margin:0">Матрицы Судьбы · Спецвход</p>
+                        </div>
+                        <div style="margin-bottom:16px">
+                            <label style="display:block;color:#aaa;font-size:12px;margin-bottom:6px;letter-spacing:0.5px">ПАРОЛЬ</label>
+                            <input id="adminLoginInput" type="password" placeholder="Введите пароль" autofocus
+                                style="width:100%;padding:12px 14px;background:#0d0b14;border:1px solid rgba(212,174,92,0.2);border-radius:8px;color:#eee;font-size:15px;outline:none;box-sizing:border-box"
+                                onkeydown="if(event.key==='Enter')submitAdminLogin()">
+                        </div>
+                        <div id="adminLoginError" style="color:#e05555;font-size:12px;margin-bottom:12px;min-height:16px"></div>
+                        <button onclick="submitAdminLogin()" id="adminLoginBtn"
+                            style="width:100%;padding:13px;background:linear-gradient(135deg,#c8a840,#8a6520);border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif">
+                            Войти
+                        </button>
+                        <a href="index.html" style="display:block;text-align:center;margin-top:16px;color:#666;font-size:12px;text-decoration:none">← Вернуться на сайт</a>
+                    </div>`;
+                document.body.appendChild(modal);
+                setTimeout(() => document.getElementById('adminLoginInput')?.focus(), 100);
+
+                window._adminLoginResolve = resolve;
+            });
+        }
+
+        async function submitAdminLogin() {
+            const input = document.getElementById('adminLoginInput');
+            const errEl = document.getElementById('adminLoginError');
+            const btn = document.getElementById('adminLoginBtn');
+            const code = (input?.value || '').trim();
+
+            if (!code) {
+                if (errEl) errEl.textContent = 'Введите пароль';
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Проверка...'; }
+            if (errEl) errEl.textContent = '';
+
+            try {
+                const response = await fetch(API_BASE + '/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: code })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    if (errEl) errEl.textContent = data.message || 'Неверный пароль';
+                    if (btn) { btn.disabled = false; btn.textContent = 'Войти'; }
+                    return;
+                }
+                localStorage.setItem('adminToken', data.token);
+                localStorage.removeItem('adminOfflineAccess');
+                document.getElementById('adminLoginModal')?.remove();
+                if (window._adminLoginResolve) window._adminLoginResolve(true);
+            } catch {
+                localStorage.setItem('adminOfflineAccess', 'true');
+                document.getElementById('adminLoginModal')?.remove();
+                if (window._adminLoginResolve) window._adminLoginResolve(false);
+                adminToast('Сервер недоступен. Открыт режим настройки.', 'warn');
+            }
+        }
+
+        let _sortState = {};
+        window._tableRefreshMap = {};
+
+        function renderTable(targetId, columns, rows, opts = {}) {
+            const root = document.getElementById(targetId);
+            if (!root) return;
+            if (!rows || !rows.length) {
+                root.innerHTML = '<div class="empty" style="padding:32px;text-align:center;color:#666"><span style="font-size:32px;display:block;margin-bottom:8px">📭</span>Нет данных</div>';
+                return;
+            }
+
+            const sortKey = _sortState[targetId]?.key;
+            const sortDir = _sortState[targetId]?.dir || 'asc';
+
+            if (sortKey) {
+                rows = [...rows].sort((a, b) => {
+                    const av = a[sortKey] || '', bv = b[sortKey] || '';
+                    return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+                });
+            }
+
+            const thead = columns.map(c => {
+                const isSort = c.key === sortKey;
+                const arrow = isSort ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+                return `<th class="sortable-th" onclick="toggleSort('${targetId}', '${c.key}')" style="cursor:pointer;user-select:none">${c.label}${arrow}</th>`;
+            }).join('') + (opts.deletable ? '<th style="width:60px"></th>' : '');
+
+            const tbody = rows.map((r, i) => {
+                const cells = columns.map(c => `<td data-label="${c.label}">${c.render ? c.render(r) : (r[c.key] || '—')}</td>`).join('');
+                const delBtn = opts.deletable ? `<td><button class="btn-del" onclick="${opts.deletable}(${r.id || i})" title="Удалить">🗑</button></td>` : '';
+                return `<tr>${cells}${delBtn}</tr>`;
+            }).join('');
+
+            root.innerHTML = `<div style="overflow-x:auto"><table class="table"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table></div>`;
+        }
+
+        function toggleSort(targetId, key) {
+            const prev = _sortState[targetId];
+            _sortState[targetId] = { key, dir: prev?.key === key && prev?.dir === 'asc' ? 'desc' : 'asc' };
+            if (typeof window._tableRefreshMap === 'object' && window._tableRefreshMap[targetId]) {
+                window._tableRefreshMap[targetId]();
+            }
+        }
+
+        function fmtDate(value) {
+            if (!value) return '—';
+            const d = new Date(value);
+            return isNaN(d.getTime()) ? value : d.toLocaleString('ru-RU');
+        }
+
+        function fmtMoney(value) {
+            return new Intl.NumberFormat('ru-RU').format(Number(value || 0)) + ' ₸';
+        }
+
+        function toDateInputValue(dt) {
+            if (!(dt instanceof Date) || isNaN(dt.getTime())) return '';
+            const y = dt.getFullYear();
+            const m = String(dt.getMonth() + 1).padStart(2, '0');
+            const d = String(dt.getDate()).padStart(2, '0');
+            return y + '-' + m + '-' + d;
+        }
+
+        function applyAnalyticsPreset() {
+            const presetEl = document.getElementById('analyticsPreset');
+            const startEl = document.getElementById('analyticsStart');
+            const endEl = document.getElementById('analyticsEnd');
+            if (!presetEl || !startEl || !endEl) return;
+            const preset = presetEl.value;
+            const now = new Date();
+
+            if (preset === 'custom') {
+                return;
+            }
+
+            const days = Number(preset || 30);
+            const start = new Date(now.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+            startEl.value = toDateInputValue(start);
+            endEl.value = toDateInputValue(now);
+        }
+
+        function analyticsQueryString() {
+            const start = (document.getElementById('analyticsStart')?.value || '').trim();
+            const end = (document.getElementById('analyticsEnd')?.value || '').trim();
+            const qs = new URLSearchParams();
+            if (start) qs.set('start', start);
+            if (end) qs.set('end', end);
+            const str = qs.toString();
+            return str ? ('?' + str) : '';
+        }
+
+        function renderRevenueChart(labels, values) {
+            const root = document.getElementById('revenueChart');
+            if (!root) return;
+            if (!labels.length) {
+                root.innerHTML = '<div class="empty">Нет данных для графика</div>';
+                return;
+            }
+
+            const max = Math.max(...values, 1);
+            root.innerHTML = labels.map((label, idx) => {
+                const value = Number(values[idx] || 0);
+                const h = Math.max(8, Math.round((value / max) * 100));
+                return '<div class="bar-wrap">'
+                    + '<div class="bar" style="height:' + h + '%" title="' + fmtMoney(value) + '"></div>'
+                    + '<div class="bar-value">' + new Intl.NumberFormat('ru-RU').format(value) + '</div>'
+                    + '<div class="bar-label">' + label.slice(2) + '</div>'
+                    + '</div>';
+            }).join('');
+        }
+
+        function renderTopServices(items) {
+            const root = document.getElementById('topServicesList');
+            if (!root) return;
+            if (!items.length) {
+                root.innerHTML = '<div class="empty">Пока нет записей по услугам</div>';
+                return;
+            }
+            root.innerHTML = items.map((item, idx) => (
+                '<div class="service-item">'
+                + '<span class="service-rank">' + (idx + 1) + '</span>'
+                + '<span class="service-name">' + (item.name || 'Не указано') + '</span>'
+                + '<span class="service-count">' + (item.count || 0) + '</span>'
+                + '</div>'
+            )).join('');
+        }
+
+        async function loadAnalytics() {
+            const response = await fetch(API_BASE + '/api/admin/analytics' + analyticsQueryString(), { headers: authHeaders() });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.message || 'Ошибка загрузки аналитики');
+            }
+
+            const m = data.metrics || {};
+            document.getElementById('anTotalRevenue').textContent = fmtMoney(m.totalRevenue || 0);
+            document.getElementById('anPaidPayments').textContent = (m.paidPayments || 0) + ' оплат';
+            document.getElementById('anMonthRevenue').textContent = fmtMoney(m.monthRevenue || 0);
+            document.getElementById('anGrowth').textContent = 'Рост ' + (m.monthGrowthPct || 0) + '% к прошлому месяцу';
+            document.getElementById('anTotalClients').textContent = String(m.totalClients || 0);
+            document.getElementById('anNewClients30').textContent = 'Новых за 30 дней: ' + String(m.newClients30 || 0);
+            document.getElementById('anAccepted').textContent = String(m.acceptedLearners || 0);
+            document.getElementById('anWaitlist').textContent = 'Лист ожидания: ' + String(m.waitlistLearners || 0);
+
+            const series = data.revenueSeries || { labels: [], values: [] };
+            renderRevenueChart(series.labels || [], series.values || []);
+            renderTopServices(data.topServices || []);
+
+            renderTable('tblTopClients', [
+                { key: 'email', label: 'Email' },
+                { key: 'bookings', label: 'Записи' },
+                { key: 'enrollments', label: 'Обучение' },
+                { key: 'messages', label: 'Сообщения' },
+                { key: 'score', label: 'Индекс' },
+                { key: 'lastAtFmt', label: 'Последняя активность' }
+            ], (data.topClients || []).map((r) => ({ ...r, lastAtFmt: fmtDate(r.lastAt) })));
+        }
+
+        async function refreshAnalytics() {
+            try {
+                await loadAnalytics();
+                adminToast('Аналитика обновлена ✓', 'success');
+            } catch (error) {
+                adminToast('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        async function exportAnalyticsCsv() {
+            try {
+                const response = await fetch(API_BASE + '/api/admin/analytics/export.csv' + analyticsQueryString(), {
+                    headers: authHeaders()
+                });
+                if (!response.ok) {
+                    let message = 'Не удалось выгрузить CSV';
+                    try {
+                        const err = await response.json();
+                        message = err.message || message;
+                    } catch {
+                        // no-op
+                    }
+                    throw new Error(message);
+                }
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'analytics.csv';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                adminToast('Ошибка экспорта: ' + error.message, 'error');
+            }
+        }
+
+        async function loadParticipants() {
+            const response = await fetch(API_BASE + '/api/admin/participants', { headers: authHeaders() });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.message || 'Ошибка загрузки участников');
+            }
+
+            const learners = data.learners || [];
+            const bookings = data.bookings || [];
+            const accepted = learners.filter((x) => x.status === 'accepted').length;
+            const waitlist = learners.filter((x) => x.status === 'waitlist').length;
+
+            document.getElementById('kpiLearners').textContent = accepted;
+            document.getElementById('kpiWaitlist').textContent = waitlist;
+            document.getElementById('kpiBookings').textContent = bookings.length;
+
+            renderTable('tblLearners', [
+                { key: 'name', label: 'Имя' },
+                { key: 'email', label: 'Email' },
+                { key: 'phone', label: 'Телефон' },
+                { key: 'status', label: 'Статус' },
+                { key: 'createdAtFmt', label: 'Дата' }
+            ], learners.map((r) => ({ ...r, createdAtFmt: fmtDate(r.created_at) })));
+
+            renderTable('tblBookings', [
+                { key: 'name', label: 'Имя' },
+                { key: 'email', label: 'Email' },
+                { key: 'phone', label: 'Телефон' },
+                { key: 'bookingAtFmt', label: 'Время приема' }
+            ], bookings.map((r) => ({ ...r, bookingAtFmt: fmtDate(r.booking_at) })));
+        }
+
+        async function loadContent() {
+            const response = await fetch(API_BASE + '/api/admin/content', { headers: authHeaders() });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.message || 'Ошибка загрузки публикаций');
+            }
+            const items = data.items || [];
+            document.getElementById('kpiContent').textContent = items.length;
+
+            renderTable('tblContent', [
+                { key: 'kind', label: 'Тип' },
+                { key: 'title', label: 'Заголовок' },
+                { key: 'body', label: 'Описание' },
+                { key: 'media_url', label: 'Ссылка' },
+                { key: 'createdAtFmt', label: 'Дата' }
+            ], items.map((r) => ({ ...r, createdAtFmt: fmtDate(r.created_at) })));
+        }
+
+        async function loadMessages() {
+            const response = await fetch(API_BASE + '/api/admin/messages', { headers: authHeaders() });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.message || 'Ошибка загрузки сообщений');
+            }
+            const messages = data.messages || [];
+            document.getElementById('kpiMessages').textContent = messages.length;
+
+            renderTable('tblMessages', [
+                { key: 'sender_role', label: 'Отправитель' },
+                { key: 'from_email', label: 'От кого' },
+                { key: 'to_email', label: 'Кому' },
+                { key: 'subject', label: 'Тема' },
+                { key: 'text', label: 'Текст' },
+                { key: 'createdAtFmt', label: 'Дата' }
+            ], messages.map((r) => ({ ...r, createdAtFmt: fmtDate(r.created_at) })));
+        }
+
+        async function createContent(e) {
+            e.preventDefault();
+            const kind = document.getElementById('contentKind').value;
+            const title = document.getElementById('contentTitle').value.trim();
+            const body = document.getElementById('contentBody').value.trim();
+            const mediaUrl = document.getElementById('contentMediaUrl').value.trim();
+
+            const response = await fetch(API_BASE + '/api/admin/content', {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({ kind, title, body, mediaUrl })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                adminToast(data.message || 'Ошибка сохранения', 'error');
+                return;
+            }
+            e.target.reset();
+            await loadContent();
+            adminToast(data.message || 'Публикация добавлена ✓', 'success');
+        }
+
+        async function sendMessage(e) {
+            e.preventDefault();
+            const toEmail = document.getElementById('msgTo').value.trim();
+            const subject = document.getElementById('msgSubject').value.trim();
+            const text = document.getElementById('msgText').value.trim();
+
+            const response = await fetch(API_BASE + '/api/admin/messages/send', {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({ toEmail, subject, text })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                adminToast(data.message || 'Ошибка отправки', 'error');
+                return;
+            }
+            e.target.reset();
+            await loadMessages();
+            adminToast(data.message || 'Сообщение отправлено ✓', 'success');
+        }
+
+        async function loadAdminData() {
+            await Promise.all([loadParticipants(), loadContent(), loadMessages(), loadAnalytics()]);
+        }
+
+        function clearAdminSession() {
+            localStorage.removeItem('isAdminLoggedIn');
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminOfflineAccess');
+            window.location.href = 'index.html';
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            initApiControls();
+            applyAnalyticsPreset();
+            const isAdminReady = await checkAdmin();
+            if (!isAdminReady && isOfflineAdminSetup()) {
+                return;
+            }
+            if (!isAdminReady) return;
+            try {
+                await loadAdminData();
+            } catch (error) {
+                adminToast('Ошибка: ' + error.message, 'error');
+            }
+        });
+
+        function _debounce(fn, ms) {
+            let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+        }
+        const _debouncedFilter = _debounce((q) => filterAdminTable(q), 280);
+
+        function filterAdminTable(query) {
+            const q = query.toLowerCase().trim();
+            document.querySelectorAll('.admin-table tbody tr, .admin-participants-table tbody tr, .table tbody tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = !q || text.includes(q) ? '' : 'none';
+            });
+        }
+    </script>
+</body>
+</html>
